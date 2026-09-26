@@ -1,0 +1,633 @@
+# Design Document: LINEスタンプジェネレーター
+
+## Overview
+
+LINEスタンプジェネレーターは、日本語ユーザーが自然言語でプロンプトを入力するだけで、AIが複数枚のLINEスタンプ画像を自動生成し、LINE規格への変換・編集・LINE Creators Marketへのアップロードまでを一括で行うローカルデスクトップアプリケーションである。
+
+### ゴール
+
+- デザインスキルや専門知識なしにLINEスタンプを作成・申請できる体験の提供
+- AI画像生成（DALL-E / Stable Diffusion / Midjourney）への統一インターフェース
+- LINE規格（サイズ・フォーマット・ファイルサイズ）への自動準拠
+- LINE Creators MarketへのブラウザAPI経由の自動アップロード
+- APIキー・認証情報のセキュアな永続化
+
+### 動作環境
+
+- **プラットフォーム**: Windows / macOS / Linux（ローカル動作）
+- **形態**: Electronデスクトップアプリ（フロントエンド: React/TypeScript、バックエンド: Python FastAPI）
+
+---
+
+## Architecture
+
+### 全体構成
+
+```mermaid
+graph TB
+    subgraph Electron["Electronアプリ（メインプロセス）"]
+        IPC["IPC Bridge"]
+        PyChild["Python FastAPI\n子プロセス"]
+    end
+
+    subgraph Renderer["レンダラプロセス（React/TypeScript）"]
+        UI_Prompt["PromptInput UI"]
+        UI_Progress["Progress UI"]
+        UI_Preview["ImagePreview UI"]
+        UI_StampSet["StampSetEditor UI"]
+        UI_Upload["UploadStatus UI"]
+        UI_Config["Config UI"]
+        UI_Logs["LogViewer UI"]
+    end
+
+    subgraph Backend["Python FastAPI バックエンド"]
+        GenSvc["ImageGeneratorService\n（Adapter Pattern）"]
+        ProcSvc["ImageProcessorService\n（Pillow）"]
+        UploadSvc["UploaderService\n（Playwright）"]
+        ConfigSvc["ConfigService\n（OS Keychain + JSON）"]
+        LogSvc["LogService\n（Rotating File）"]
+    end
+
+    subgraph AI["外部AIサービス"]
+        DALLE["DALL-E API\n（OpenAI）"]
+        SD["Stable Diffusion\n（Local WebUI）"]
+        MJ["Midjourney API"]
+    end
+
+    subgraph LCM["LINE Creators Market"]
+        Browser["Playwrightブラウザ\n（ヘッドレス）"]
+    end
+
+    Renderer <-->|"HTTP / IPC"| IPC
+    IPC <-->|"HTTP localhost"| PyChild
+    PyChild --> GenSvc
+    PyChild --> ProcSvc
+    PyChild --> UploadSvc
+    PyChild --> ConfigSvc
+    PyChild --> LogSvc
+    GenSvc --> DALLE
+    GenSvc --> SD
+    GenSvc --> MJ
+    UploadSvc --> Browser
+    Browser --> LCM
+```
+
+### アーキテクチャの決定事項
+
+| 決定 | 理由 |
+|------|------|
+| Electron + Python FastAPI | TypeScript UIの豊富なエコシステムと、画像処理・ML系ライブラリが充実したPythonを組み合わせる。FastAPIをlocalhost子プロセスとして起動することで、IPC複雑性を最小化。 |
+| Adapter Patternで複数AIエンジンを抽象化 | DALL-E / SD / Midjourneyのインターフェースを統一し、将来の追加・切り替えを容易にする。 |
+| Playwrightによるブラウザ自動化アップロード | LINE Creators MarketのPublic APIが存在しないため、Webブラウザ操作による自動化を採用。ヘッドレスモードで動作。 |
+| OS Keychain（keytar / python-keyring）で認証情報を保管 | APIキーや認証情報をプレーンテキストで保存せず、OS提供のセキュアストレージを利用。 |
+
+---
+
+## Components and Interfaces
+
+### フロントエンド コンポーネント
+
+```mermaid
+graph LR
+    App --> PromptInput
+    App --> GenerationProgress
+    App --> ImagePreviewGrid
+    App --> StampSetEditor
+    App --> UploadPanel
+    App --> ConfigPanel
+    App --> LogViewer
+    App --> SetupWizard
+```
+
+#### PromptInput
+
+ユーザーのプロンプト入力フォームと送信コントロールを提供する。
+
+```typescript
+interface PromptInputProps {
+  onSubmit: (request: GenerationRequest) => void;
+  history: PromptHistory[];
+  onHistorySelect: (prompt: string) => void;
+}
+
+// バリデーション関数（純粋関数 - プロパティテスト対象）
+function validatePrompt(text: string): ValidationError | null
+function validatePromptLength(text: string): ValidationError | null
+```
+
+#### ImagePreviewGrid
+
+生成された画像をグリッド表示し、個別操作（削除・再生成）を提供する。
+
+```typescript
+interface ImagePreviewGridProps {
+  images: GeneratedImage[];
+  onDelete: (index: number) => void;
+  onRegenerate: (index: number) => void;
+}
+```
+
+#### StampSetEditor
+
+スタンプセットのメタデータ編集・差し替え・エクスポートを提供する。
+
+```typescript
+interface StampSetEditorProps {
+  stampSet: StampSet;
+  onTitleChange: (title: string) => void;
+  onDescriptionChange: (description: string) => void;
+  onReplaceImage: (index: number, file: File) => void;
+  onExport: (outputPath: string) => void;
+  onUpload: () => void;
+}
+
+// バリデーション関数（純粋関数 - プロパティテスト対象）
+function validateTitle(title: string): ValidationError | null
+function validateDescription(description: string): ValidationError | null
+function validateFileType(filename: string): ValidationError | null
+```
+
+### バックエンド サービス
+
+#### ImageGeneratorService
+
+AI画像生成エンジンに対するAdapterインターフェース。
+
+```python
+class ImageGeneratorAdapter(ABC):
+    @abstractmethod
+    async def generate(
+        self,
+        prompt: str,
+        style: Optional[str],
+        count: int,
+        timeout_seconds: int = 180,
+    ) -> AsyncIterator[GenerationProgress]:
+        ...
+
+class DALLEAdapter(ImageGeneratorAdapter): ...
+class StableDiffusionAdapter(ImageGeneratorAdapter): ...
+class MidjourneyAdapter(ImageGeneratorAdapter): ...
+
+class ImageGeneratorService:
+    def __init__(self, adapter: ImageGeneratorAdapter): ...
+    async def generate_batch(self, request: GenerationRequest) -> AsyncIterator[GenerationProgress]: ...
+    async def generate_single(self, request: GenerationRequest, index: int) -> GeneratedImage: ...
+```
+
+#### ImageProcessorService
+
+LINE規格への画像変換・バリデーション。Pillowを使用する。
+
+```python
+class ImageProcessorService:
+    # LINE規格定数
+    STAMP_MAX_W = 370
+    STAMP_MAX_H = 320
+    MAIN_W, MAIN_H = 240, 240
+    THUMB_W, THUMB_H = 96, 74
+    MAX_FILE_BYTES = 1_048_576  # 1MB
+
+    async def process_image(self, source_path: str) -> ProcessedImageSet: ...
+    def resize_to_stamp(self, img: Image) -> Image: ...
+    def center_crop_to_aspect(self, img: Image, target_w: int, target_h: int) -> Image: ...
+    def compress_to_limit(self, img: Image, max_bytes: int) -> tuple[bytes, bool]: ...
+    def validate(self, img_bytes: bytes, expected_w: int, expected_h: int) -> ValidationResult: ...
+```
+
+#### UploaderService
+
+Playwrightを使ったLINE Creators Marketへのブラウザ自動化アップロード。
+
+```python
+class UploaderService:
+    async def upload(
+        self,
+        stamp_set: StampSet,
+        credentials: LineCredentials,
+        on_progress: Callable[[UploadProgress], None],
+    ) -> UploadResult: ...
+    async def _login(self, page: Page, credentials: LineCredentials) -> None: ...
+    async def _upload_images(self, page: Page, stamp_set: StampSet) -> None: ...
+    async def _submit_for_review(self, page: Page) -> str: ...  # returns application_id
+```
+
+#### ConfigService
+
+設定の永続化とOS Keychainへのセキュアな認証情報管理。
+
+```python
+class ConfigService:
+    CONFIG_FILE = "~/.line-stamp-gen/config.json"
+    KEYCHAIN_SERVICE = "line-stamp-generator"
+
+    def load(self) -> Config: ...
+    def save(self, config: Config) -> None: ...
+    def export_sanitized(self) -> dict: ...  # APIキー・認証情報を除いてエクスポート
+    def import_from_dict(self, data: dict) -> None: ...  # スキーマ検証後に上書き
+    def save_credential(self, key: str, value: str) -> None: ...  # OS Keychain
+    def get_credential(self, key: str) -> Optional[str]: ...
+```
+
+#### LogService
+
+ローテーション付きファイルロガー。
+
+```python
+class LogService:
+    MAX_TOTAL_BYTES = 100 * 1024 * 1024  # 100MB
+    MAX_DISPLAY_ENTRIES = 1000
+
+    def log(self, level: LogLevel, module: str, message: str) -> None: ...
+    def rotate_if_needed(self) -> None: ...
+    def get_entries(
+        self,
+        level: Optional[LogLevel] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        limit: int = 1000,
+    ) -> list[LogEntry]: ...
+```
+
+---
+
+## Data Models
+
+```typescript
+// フロントエンド（TypeScript）
+
+type StampCount = 8 | 16 | 24 | 32 | 40;
+type GenerationStyle = "かわいい" | "クール" | "ゆるい" | "リアル";
+type GenerationMode = "batch" | "preview_approval";
+
+interface GenerationRequest {
+  prompt: string;
+  count: StampCount;
+  style?: GenerationStyle;
+  mode: GenerationMode;
+}
+
+interface GeneratedImage {
+  index: number;
+  dataUrl: string;        // base64 data URL for preview
+  tempFilePath: string;   // バックエンド側の一時ファイルパス
+  status: "pending" | "generating" | "done" | "error";
+  errorMessage?: string;
+}
+
+interface StampImage {
+  stampPath: string;      // 370×320px以内 透過PNG
+  mainImagePath: string;  // 240×240px PNG
+  thumbnailPath: string;  // 96×74px PNG
+  validationResult: ValidationResult;
+}
+
+interface StampSet {
+  title: string;          // 1-40文字
+  description: string;    // 0-160文字
+  images: StampImage[];
+  isValidForUpload: boolean;
+}
+
+interface ValidationResult {
+  passed: boolean;
+  sizeOk: boolean;
+  formatOk: boolean;
+  fileSizeOk: boolean;
+  fileSizeExceeded: boolean;  // true = 圧縮しても1MB超過（調整不可）
+  details: string;
+}
+
+interface UploadResult {
+  success: boolean;
+  applicationId?: string;
+  status?: string;
+  errorType?: "network" | "auth" | "validation" | "unknown";
+  retryCount: number;
+  errorMessage?: string;
+}
+
+interface Config {
+  aiEngine: "dalle" | "stable_diffusion" | "midjourney";
+  outputDirectory: string;
+  dalleModel: string;     // e.g. "dall-e-3"
+  sdEndpoint: string;     // Stable Diffusion WebUI endpoint
+  // APIキー・認証情報はOS Keychainに保存（Configファイルには含まない）
+}
+
+interface PromptHistory {
+  id: string;
+  text: string;
+  createdAt: string;      // ISO 8601
+}
+
+interface LogEntry {
+  timestamp: string;      // ISO 8601
+  level: "INFO" | "WARN" | "ERROR";
+  module: string;
+  message: string;
+}
+```
+
+```python
+# バックエンド（Python dataclasses）
+
+@dataclass
+class ProcessedImageSet:
+    stamp_path: str
+    main_image_path: str
+    thumbnail_path: str
+    validation: ValidationResult
+
+@dataclass
+class ValidationResult:
+    passed: bool
+    size_ok: bool
+    format_ok: bool
+    file_size_ok: bool
+    file_size_exceeded: bool  # 圧縮最大レベルでも1MB超過
+    details: str
+
+@dataclass
+class GenerationProgress:
+    completed: int
+    total: int
+    latest_image_path: Optional[str]
+    error: Optional[GenerationError]
+
+@dataclass
+class UploadResult:
+    success: bool
+    application_id: Optional[str]
+    status: Optional[str]
+    error_type: Optional[str]
+    retry_count: int
+    error_message: Optional[str]
+
+@dataclass
+class LogEntry:
+    timestamp: str   # ISO 8601
+    level: str       # INFO / WARN / ERROR
+    module: str
+    message: str
+
+@dataclass
+class LineCredentials:
+    email: str
+    password: str   # OS Keychainから取得
+```
+
+---
+
+## Correctness Properties
+
+*プロパティとは、システムの有効な全実行において成立すべき特性や振る舞いのことである。形式的に言えば、「システムが何をすべきか」についての普遍的な命題である。プロパティは人間が読める仕様と機械検証可能な正確性の保証をつなぐ架け橋となる。*
+
+---
+
+### Property 1: プロンプト文字数バリデーション
+
+*任意の* 文字列 `s` に対して、`len(s) > 1000` であればバリデーション関数はエラーを返し、`len(s) <= 1000` かつ `s` が空白のみでなければ通過する。
+
+**Validates: Requirements 1.2**
+
+---
+
+### Property 2: 空白・空文字プロンプトの拒否
+
+*任意の* 空白文字（スペース・タブ・改行）のみで構成された文字列に対して、プロンプトバリデーション関数は必ずエラーを返す。
+
+**Validates: Requirements 1.3**
+
+---
+
+### Property 3: プロンプト履歴のFIFO管理
+
+*任意の* n 件（n >= 0）のプロンプト送信操作のシーケンスに対して、履歴リストは常に 20 件以下であり、最新のものが先頭に来る順序が保たれ、21 件目の追加時には最古の 1 件が削除される。
+
+**Validates: Requirements 1.7**
+
+---
+
+### Property 4: プレビュー承認モードの残り枚数
+
+*任意の* 有効な生成枚数 `n`（8, 16, 24, 32, 40 のいずれか）に対して、プレビュー承認モードで「残りを生成する」ボタンが押されたとき、ImageGeneratorService への追加生成リクエストの count は常に `n - 1` である。
+
+**Validates: Requirements 2.3**
+
+---
+
+### Property 5: LINE規格変換の出力サイズ保証
+
+*任意の* サイズ・形式の入力画像に対して、ImageProcessorService が変換を完了した後、スタンプ画像は 370×320px 以内の透過 PNG、メイン画像は 240×240px の PNG、サムネイル画像は 96×74px の PNG となる。
+
+**Validates: Requirements 3.1, 3.2**
+
+---
+
+### Property 6: ファイルサイズ 1MB 以下保証
+
+`file_size_exceeded` フラグが `false` である *任意の* 変換済み画像に対して、PNG バイト列のサイズは常に 1,048,576 バイト（1 MB）以下である。
+
+**Validates: Requirements 3.3**
+
+---
+
+### Property 7: 中央クロップ後のアスペクト比
+
+*任意の* アスペクト比を持つ入力画像に対して、`center_crop_to_aspect` 関数を適用した後の画像の幅と高さの比は、目標アスペクト比（370:320）に等しいか、元の画像が既に目標比率以内であればそのままのサイズが保持される。
+
+**Validates: Requirements 3.5**
+
+---
+
+### Property 8: バッチ変換のエラー継続処理
+
+`n` 枚の画像バッチを処理するとき、*任意の* インデックス `i` の画像でファイル読み込み／書き込みエラーが発生しても、インデックス `i` 以外の `n - 1` 枚の変換処理が完了（成功または別エラー）する。
+
+**Validates: Requirements 3.7**
+
+---
+
+### Property 9: Stamp_Set メタデータバリデーション
+
+*任意の* 文字列 `title` に対して、長さが 1〜40 文字の範囲内なら `validateTitle` はエラーなしを返し、0 文字または 41 文字以上ならエラーを返す。*任意の* 文字列 `description` に対して、長さが 0〜160 文字の範囲内なら `validateDescription` はエラーなしを返し、161 文字以上ならエラーを返す。
+
+**Validates: Requirements 4.2, 4.3**
+
+---
+
+### Property 10: ファイル種別バリデーション
+
+*任意の* ファイル名に対して、拡張子が `.png`（大文字小文字を問わない）以外であれば `validateFileType` は常にエラーを返す。
+
+**Validates: Requirements 4.5**
+
+---
+
+### Property 11: アップロードリトライロジック
+
+*任意の* ネットワークエラーパターン（エラー回数 0〜5）に対して、UploaderService のリトライ処理は最大 3 回で停止し、3 回連続失敗した場合には `UploadResult.retry_count == 3` かつ `UploadResult.success == false` が成立する。認証エラー時はリトライ回数が 0 のまま即時停止する。
+
+**Validates: Requirements 5.4, 5.7**
+
+---
+
+### Property 12: バリデーション状態とアップロードボタンの連動
+
+*任意の* `StampSet` 状態に対して、`isValidForUpload == false` であればアップロードボタンは無効化（`disabled`）であり、`isValidForUpload == true` のときのみ有効化される。
+
+**Validates: Requirements 5.6**
+
+---
+
+### Property 13: Config エクスポートのセンシティブフィールド除外
+
+*任意の* `Config` 状態（APIキーや認証情報が設定されているか否かに関わらず）に対して、`export_sanitized()` が返す JSON オブジェクトには `api_key` および `password` を含む認証情報フィールドが存在しない。
+
+**Validates: Requirements 6.5**
+
+---
+
+### Property 14: Config JSON ラウンドトリップ
+
+*任意の* 有効な `Config` オブジェクト（APIキーや認証情報フィールドを除く）に対して、`export_sanitized()` でシリアライズし、`import_from_dict()` でインポートすると元の `Config` と同一内容が復元される。
+
+**Validates: Requirements 6.6**
+
+---
+
+### Property 15: 不正 Config インポート時のデータ保全
+
+*任意の* 不正 JSON 文字列またはスキーマ違反 dict に対して、`import_from_dict()` を呼び出した後の `Config` は呼び出し前と同一であり、変更されていない。
+
+**Validates: Requirements 6.7**
+
+---
+
+### Property 16: ログエントリのフォーマット
+
+*任意の* ログ生成呼び出し（レベル・モジュール名・メッセージの任意の組み合わせ）に対して、`LogService.log()` が書き込むエントリには ISO 8601 形式のタイムスタンプ・ログレベル（INFO/WARN/ERROR）・モジュール名・メッセージが含まれる。
+
+**Validates: Requirements 7.2**
+
+---
+
+### Property 17: ログローテーションの上限保証
+
+*任意の* ログファイルセット（合計サイズが 100 MB を超えるもの）に対して、`rotate_if_needed()` を実行した後、ログファイルの合計サイズは常に 100 MB 以下である。
+
+**Validates: Requirements 7.3**
+
+---
+
+### Property 18: ログ表示件数の上限
+
+*任意の* 件数のログエントリが存在するとき、`get_entries(limit=1000)` が返すリストの長さは常に 1000 以下である。
+
+**Validates: Requirements 7.4**
+
+---
+
+### Property 19: ログフィルタリングの正確性
+
+*任意の* ログエントリセットと *任意の* フィルタ条件（ログレベル・日付範囲の組み合わせ）に対して、`get_entries()` が返す全エントリは指定したフィルタ条件を満たし、条件を満たさないエントリは含まれない。
+
+**Validates: Requirements 7.6**
+
+---
+
+## Error Handling
+
+### エラー分類と対応方針
+
+| エラー種別 | 発生箇所 | リトライ | ユーザー通知 | 継続処理 |
+|-----------|---------|---------|------------|---------|
+| AI生成 タイムアウト（180秒） | ImageGeneratorService | ユーザー判断 | エラーインデックスと種別を表示 | 生成済み画像を保持 |
+| AI生成 APIエラー | ImageGeneratorService | ユーザー判断 | エラーインデックスと種別を表示 | 生成済み画像を保持 |
+| 画像変換 ファイルI/Oエラー | ImageProcessorService | 自動スキップ | 該当インデックスとエラー内容を即時表示 | 他画像の変換を継続 |
+| PNG圧縮 1MB超過（調整不可） | ImageProcessorService | なし | Validation_Resultに「ファイルサイズ超過（調整不可）」を表示 | 他画像の変換を継続 |
+| ZIP書き込みエラー | エクスポート処理 | なし | 「エクスポートに失敗しました」とエラー詳細 | Stamp_Setデータ保持 |
+| ネットワークエラー（アップロード） | UploaderService | 自動3回（5秒間隔） | 3回失敗時にエラー種別・回数・詳細を表示 | - |
+| 認証エラー（アップロード） | UploaderService | なし（即時停止） | 認証エラー旨をUpload_Resultに記録して表示 | - |
+| Config インポート不正 | ConfigService | なし | エラー内容を表示 | 既存Config保持 |
+| ログ書き込みエラー | LogService | なし | UIに通知のみ | 主要機能を継続 |
+
+### エラーメッセージの方針
+
+- すべてのユーザー向けエラーメッセージは日本語で記述する
+- 技術的な詳細（スタックトレース等）はログファイルに記録し、UIには分かりやすい要約と推奨される対処方法を表示する
+- エラーメッセージには可能な限りエラーが発生した画像インデックスや操作名を含め、ユーザーが問題箇所を特定できるようにする
+
+---
+
+## Testing Strategy
+
+### デュアルテスト方針
+
+このアプリは「ユニットテスト（例示ベース）」と「プロパティベーステスト（PBT）」の両方を用いる。
+
+- **ユニットテスト**: 特定の入力に対する期待動作の確認、UIコンポーネントのレンダリング、エラーハンドリング、外部サービスとのインテグレーション確認
+- **プロパティベーステスト**: バリデーションロジック・変換ロジック・状態管理ロジックの普遍的な正確性の検証
+
+### 使用するテストフレームワーク
+
+| 対象 | フレームワーク |
+|------|--------------|
+| TypeScript フロントエンド（ユニット・PBT） | Vitest + fast-check |
+| Python バックエンド（ユニット・PBT） | pytest + Hypothesis |
+| E2E / インテグレーション | Playwright Test |
+
+### プロパティベーステスト設定
+
+- 各プロパティテストは **最低 100 イテレーション** で実行する（fast-check デフォルト: 100、Hypothesis デフォルト: 100）
+- 各プロパティテストには以下の形式でタグコメントを付与する:
+  ```
+  # Feature: line-stamp-generator, Property {番号}: {プロパティ本文の要約}
+  ```
+
+### テスト対象のカバレッジ方針
+
+#### プロパティベーステスト（Hypothesis / fast-check）
+
+```python
+# 例: Property 3 - プロンプト履歴FIFO管理
+# Feature: line-stamp-generator, Property 3: 履歴は常に20件以下・新しい順・21件目追加時に最古削除
+@given(prompts=st.lists(st.text(min_size=1), min_size=0, max_size=50))
+@settings(max_examples=100)
+def test_prompt_history_fifo(prompts):
+    history = PromptHistory()
+    for p in prompts:
+        history.add(p)
+    assert len(history.entries) <= 20
+    if len(prompts) >= 2:
+        # 最新のものが先頭
+        assert history.entries[0].text == prompts[-1]
+```
+
+#### ユニットテスト（pytest / Vitest）
+
+- ImageProcessorService の具体的なサイズ変換（例: 800×600px → 370×320px）
+- UploadResult の構造確認
+- Config の保存・読み込みのラウンドトリップ（具体例）
+- エラー時のUIメッセージ表示（スナップショット）
+
+#### インテグレーションテスト（Playwright Test）
+
+- AI生成フロー全体（モックAPI使用）
+- ZIP エクスポートの実ファイル生成
+- LINE Creators Market アップロードフロー（ステージング環境またはモック）
+
+#### スモークテスト
+
+- アプリ起動時の初回セットアップウィザード表示
+- Config 画面の必要フィールド存在確認
+- AI エンジン選択肢の存在確認
+- 認証情報保存後にプレーンテキストでファイルに記録されていないことの確認
+
+### ユニットテストとプロパティテストのバランス
+
+- バリデーション関数・変換関数・状態管理ロジックは原則プロパティテストでカバーする
+- UIコンポーネントのレンダリングはスナップショットテストを使用する
+- 外部サービス（AI API、Playwright、OS Keychain）はすべてモックを使用する
+- パフォーマンス要件（変換 10 秒以内等）はスモークテストとして別途計測する

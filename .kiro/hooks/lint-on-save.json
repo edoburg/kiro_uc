@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Lint on Save (TS/Python)",
+      "trigger": "PostFileSave",
+      "description": "TypeScript/Pythonファイル保存時にLint・型チェックを自動実行する",
+      "matcher": "\\\\.(ts|tsx|py)$",
+      "action": {
+        "type": "command",
+        "command": "node -e \"const fs=require('fs');const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));const f=d.file||'';if(f.endsWith('.py')){require('child_process').execSync('python -m flake8 --max-line-length=120 \\\"'+f+'\\\"',{stdio:'inherit'});}else{require('child_process').execSync('npx tsc --noEmit',{cwd:process.env.WORKSPACE_ROOT||'.',stdio:'inherit'});}\"",
+        "timeout": 60
+      }
+    }
+  ]
+}

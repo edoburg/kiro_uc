@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Run Tests After Task",
+      "trigger": "PostTaskExec",
+      "description": "Specタスク完了後にVitestとpytestを自動実行して実装を検証する",
+      "action": {
+        "type": "command",
+        "command": "cd /d \"%WORKSPACE_ROOT%\" && npm run test -- --run 2>&1 | tail -20 && python -m pytest tests/ -x -q 2>&1 | tail -20",
+        "timeout": 120
+      }
+    }
+  ]
+}

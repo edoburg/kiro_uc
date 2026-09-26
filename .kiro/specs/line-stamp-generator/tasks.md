@@ -1,0 +1,276 @@
+# Implementation Plan: LINEスタンプジェネレーター
+
+## Overview
+
+Electron（メインプロセス）＋ React/TypeScript（レンダラ）＋ Python FastAPI（バックエンド子プロセス）のハイブリッド構成で実装する。
+タスクは「プロジェクト基盤 → バックエンドサービス層 → フロントエンドコンポーネント層 → Electron統合 → E2E」の順に積み上げる。
+テスト関連サブタスク（`*` 付き）は省略可能だが、必須サブタスクとセットで実行することを推奨する。
+
+---
+
+## Tasks
+
+- [ ] 1. プロジェクト構成と共有型定義のセットアップ
+  - Electron + React/TypeScript のプロジェクトスキャフォールド（Vite + electron-builder）を作成する
+  - Python FastAPI バックエンドのディレクトリ構造とパッケージ設定（`pyproject.toml` / `requirements.txt`）を作成する
+  - フロントエンド用の共有型定義ファイル `src/types/index.ts` を作成し、`StampCount`・`GenerationRequest`・`GeneratedImage`・`StampSet`・`StampImage`・`ValidationResult`・`UploadResult`・`Config`・`PromptHistory`・`LogEntry` を定義する
+  - Python バックエンド用の dataclass モジュール `backend/models.py` に `ProcessedImageSet`・`ValidationResult`・`GenerationProgress`・`UploadResult`・`LogEntry`・`LineCredentials` を定義する
+  - Vitest + fast-check（フロントエンド）と pytest + Hypothesis（バックエンド）のテスト環境を構築する
+  - _Requirements: 1.1, 2.7, 6.1_
+
+- [ ] 2. ConfigService（Python）の実装
+  - [ ] 2.1 `backend/services/config_service.py` を作成し、`load`・`save`・`export_sanitized`・`import_from_dict`・`save_credential`・`get_credential` を実装する
+    - `export_sanitized` では `api_key`・`password` を含む認証情報フィールドを除外する
+    - `import_from_dict` では Pydantic スキーマ検証後のみ既存 Config を上書きする
+    - `save_credential`・`get_credential` は `python-keyring` で OS Keychain を使用する
+    - _Requirements: 6.1, 6.2, 6.4, 6.5, 6.6, 6.7_
+
+  - [ ]* 2.2 Property 13 のプロパティテストを Hypothesis で記述する
+    - **Property 13: Config エクスポートのセンシティブフィールド除外**
+    - **Validates: Requirements 6.5**
+
+  - [ ]* 2.3 Property 14 のプロパティテストを Hypothesis で記述する
+    - **Property 14: Config JSON ラウンドトリップ**
+    - **Validates: Requirements 6.6**
+
+  - [ ]* 2.4 Property 15 のプロパティテストを Hypothesis で記述する
+    - **Property 15: 不正 Config インポート時のデータ保全**
+    - **Validates: Requirements 6.7**
+
+- [ ] 3. LogService（Python）の実装
+  - [ ] 3.1 `backend/services/log_service.py` を作成し、`log`・`rotate_if_needed`・`get_entries` を実装する
+    - ログエントリには ISO 8601 タイムスタンプ・ログレベル（INFO/WARN/ERROR）・モジュール名・メッセージを含める
+    - `rotate_if_needed` はログファイル合計サイズが 100MB 超過時に最古ファイルから削除する
+    - `get_entries` はレベル・日付範囲のフィルタリングと最大 1000 件の上限を実装する
+    - _Requirements: 7.2, 7.3, 7.4, 7.5, 7.6_
+
+  - [ ]* 3.2 Property 16 のプロパティテストを Hypothesis で記述する
+    - **Property 16: ログエントリのフォーマット**
+    - **Validates: Requirements 7.2**
+
+  - [ ]* 3.3 Property 17 のプロパティテストを Hypothesis で記述する
+    - **Property 17: ログローテーションの上限保証**
+    - **Validates: Requirements 7.3**
+
+  - [ ]* 3.4 Property 18 のプロパティテストを Hypothesis で記述する
+    - **Property 18: ログ表示件数の上限**
+    - **Validates: Requirements 7.4**
+
+  - [ ]* 3.5 Property 19 のプロパティテストを Hypothesis で記述する
+    - **Property 19: ログフィルタリングの正確性**
+    - **Validates: Requirements 7.6**
+
+- [ ] 4. Checkpoint — ConfigService・LogService の動作確認
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 5. ImageProcessorService（Python）の実装
+  - [ ] 5.1 `backend/services/image_processor_service.py` を作成し、`resize_to_stamp`・`center_crop_to_aspect`・`compress_to_limit`・`validate`・`process_image` を Pillow で実装する
+    - スタンプ画像: W370×H320px 以内の透過 PNG
+    - メイン画像: W240×H240px PNG
+    - サムネイル画像: W96×H74px PNG
+    - `compress_to_limit` は PNG 圧縮レベルを段階的に上げて 1MB 以下に収め、超過時は `file_size_exceeded=True` をセットする
+    - バッチ変換では個別エラーを記録しつつ他画像の変換を継続する
+    - _Requirements: 3.1, 3.2, 3.3, 3.5, 3.6, 3.7, 3.8_
+
+  - [ ]* 5.2 Property 5 のプロパティテストを Hypothesis で記述する
+    - **Property 5: LINE規格変換の出力サイズ保証**
+    - **Validates: Requirements 3.1, 3.2**
+
+  - [ ]* 5.3 Property 6 のプロパティテストを Hypothesis で記述する
+    - **Property 6: ファイルサイズ 1MB 以下保証**
+    - **Validates: Requirements 3.3**
+
+  - [ ]* 5.4 Property 7 のプロパティテストを Hypothesis で記述する
+    - **Property 7: 中央クロップ後のアスペクト比**
+    - **Validates: Requirements 3.5**
+
+  - [ ]* 5.5 Property 8 のプロパティテストを Hypothesis で記述する
+    - **Property 8: バッチ変換のエラー継続処理**
+    - **Validates: Requirements 3.7**
+
+  - [ ]* 5.6 `process_image` のユニットテストを pytest で記述する（具体的なサイズ入力例: 800×600px → 370×320px 以内）
+    - _Requirements: 3.1, 3.2, 3.6_
+
+- [ ] 6. ImageGeneratorService（Python）の実装
+  - [ ] 6.1 `backend/services/image_generator_service.py` に `ImageGeneratorAdapter` 抽象クラスを定義し、`DALLEAdapter`・`StableDiffusionAdapter`・`MidjourneyAdapter` を実装する
+    - 各アダプタは `generate` を async generator として実装し、180 秒タイムアウトを組み込む
+    - `ImageGeneratorService.generate_batch` / `generate_single` を実装する
+    - _Requirements: 2.1, 2.3, 2.7, 2.8, 2.10_
+
+  - [ ]* 6.2 `DALLEAdapter`・`StableDiffusionAdapter`・`MidjourneyAdapter` のユニットテストを pytest + mock で記述する
+    - タイムアウト・APIエラー時のエラー種別返却を確認する
+    - _Requirements: 2.8, 2.10_
+
+- [ ] 7. UploaderService（Python）の実装
+  - [ ] 7.1 `backend/services/uploader_service.py` を作成し、`_login`・`_upload_images`・`_submit_for_review`・`upload` を Playwright で実装する
+    - ネットワークエラー時は 5 秒間隔で最大 3 回自動リトライする
+    - 認証エラー時はリトライなしで即時停止し `UploadResult` にエラー種別を記録する
+    - 進捗コールバック `on_progress` を 1 秒以内の間隔で呼び出す
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.7_
+
+  - [ ]* 7.2 Property 11 のプロパティテストを Hypothesis で記述する
+    - **Property 11: アップロードリトライロジック**
+    - **Validates: Requirements 5.4, 5.7**
+
+  - [ ]* 7.3 `UploaderService` のユニットテストを pytest + mock で記述する
+    - 認証エラー即時停止・3回失敗後の `UploadResult` 構造を確認する
+    - _Requirements: 5.4, 5.7_
+
+- [ ] 8. FastAPI ルーター・IPC ブリッジの実装
+  - [ ] 8.1 `backend/main.py` に FastAPI アプリを定義し、以下のエンドポイントを実装する
+    - `POST /generate` — 画像生成（SSE ストリームで進捗配信）
+    - `POST /process` — LINE規格変換
+    - `POST /upload` — LINE Creators Market アップロード（SSE ストリームで進捗配信）
+    - `GET/POST /config` — Config の読み書き・エクスポート・インポート・クレデンシャル管理
+    - `GET /logs` — ログ取得・フィルタリング
+    - _Requirements: 2.5, 5.2, 6.1, 6.4, 6.5, 6.6, 7.4, 7.6_
+
+  - [ ] 8.2 Electron メインプロセス (`electron/main.ts`) に Python FastAPI 子プロセスの起動・終了管理と IPC ブリッジを実装する
+    - `ipcMain.handle` で各エンドポイントへの HTTP プロキシを実装する
+    - _Requirements: 2.5, 5.2_
+
+- [ ] 9. Checkpoint — バックエンドサービス層の統合確認
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 10. PromptInput コンポーネント（TypeScript）の実装
+  - [ ] 10.1 `src/components/PromptInput.tsx` を作成し、`validatePrompt`・`validatePromptLength` 純粋関数を `src/utils/validation.ts` に実装する
+    - リアルタイム文字数カウント・1000文字超過時のエラー表示・送信ボタン無効化を実装する
+    - 空文字・空白のみの場合は「条件を入力してください」を表示する
+    - スタンプ枚数セレクタ（8/16/24/32/40、デフォルト 8）・スタイル選択・生成モード選択を実装する
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
+
+  - [ ]* 10.2 Property 1 のプロパティテストを fast-check で記述する
+    - **Property 1: プロンプト文字数バリデーション**
+    - **Validates: Requirements 1.2**
+
+  - [ ]* 10.3 Property 2 のプロパティテストを fast-check で記述する
+    - **Property 2: 空白・空文字プロンプトの拒否**
+    - **Validates: Requirements 1.3**
+
+- [ ] 11. PromptHistory 管理ロジック（TypeScript）の実装
+  - [ ] 11.1 `src/stores/promptHistoryStore.ts` を作成し、履歴の追加・取得・選択ロジックを実装する
+    - 最大 20 件・新しい順・21 件目追加時に最古 1 件を削除する
+    - 履歴選択時にフォームへの反映コールバックを呼び出す
+    - _Requirements: 1.7, 1.8_
+
+  - [ ]* 11.2 Property 3 のプロパティテストを fast-check で記述する
+    - **Property 3: プロンプト履歴の FIFO 管理**
+    - **Validates: Requirements 1.7**
+
+- [ ] 12. ImagePreviewGrid コンポーネント（TypeScript）の実装
+  - [ ] 12.1 `src/components/ImagePreviewGrid.tsx` を作成し、生成画像のグリッド表示・個別削除・個別再生成ボタンを実装する
+    - 生成進捗（完了枚数 / 全体枚数）を 1 秒以内の更新間隔でリアルタイム表示する
+    - プレビュー承認モード用の「このスタイルで残りを生成する」「やり直す」ボタンを実装する
+    - _Requirements: 2.2, 2.3, 2.4, 2.5, 2.6, 2.9_
+
+  - [ ]* 12.2 Property 4 のプロパティテストを fast-check で記述する
+    - **Property 4: プレビュー承認モードの残り枚数（n − 1）**
+    - **Validates: Requirements 2.3**
+
+  - [ ]* 12.3 `ImagePreviewGrid` のユニットテストを Vitest で記述する
+    - 各ボタンの表示条件・進捗表示・エラー時の再試行ボタンを確認する
+    - _Requirements: 2.6, 2.8_
+
+- [ ] 13. StampSetEditor コンポーネント（TypeScript）の実装
+  - [ ] 13.1 `src/components/StampSetEditor.tsx` を作成し、スタンプセットのプレビュー一覧・タイトル/説明入力・画像差し替え・エクスポートボタンを実装する
+    - `validateTitle`・`validateDescription`・`validateFileType` を `src/utils/validation.ts` に追加し StampSetEditor から呼び出す
+    - タイトル: 1〜40文字、説明: 0〜160文字のリアルタイムバリデーション
+    - ファイル選択ダイアログは PNG のみ許可、PNG 以外は「PNG形式のファイルを選択してください」を表示する
+    - エクスポート前にタイトルバリデーションを通過した場合のみ ZIP 書き出しを開始する
+    - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9_
+
+  - [ ]* 13.2 Property 9 のプロパティテストを fast-check で記述する
+    - **Property 9: Stamp_Set メタデータバリデーション**
+    - **Validates: Requirements 4.2, 4.3**
+
+  - [ ]* 13.3 Property 10 のプロパティテストを fast-check で記述する
+    - **Property 10: ファイル種別バリデーション**
+    - **Validates: Requirements 4.5**
+
+  - [ ]* 13.4 `StampSetEditor` のユニットテストを Vitest で記述する
+    - バリデーションエラーメッセージ表示・エクスポートボタン活性状態を確認する
+    - _Requirements: 4.2, 4.3, 4.7_
+
+- [ ] 14. UploadPanel コンポーネント（TypeScript）の実装
+  - [ ] 14.1 `src/components/UploadPanel.tsx` を作成し、アップロード進捗バー・Upload_Result 表示・認証情報未設定メッセージ・アップロードボタンの活性制御を実装する
+    - `isValidForUpload == false` のときアップロードボタンを `disabled` にする
+    - 認証情報未設定時はアップロードを開始せずエラーメッセージを表示する
+    - _Requirements: 5.1, 5.2, 5.3, 5.6, 5.7, 5.8_
+
+  - [ ]* 14.2 Property 12 のプロパティテストを fast-check で記述する
+    - **Property 12: バリデーション状態とアップロードボタンの連動**
+    - **Validates: Requirements 5.6**
+
+  - [ ]* 14.3 `UploadPanel` のユニットテストを Vitest で記述する
+    - 認証エラー・ネットワークエラー・成功時の各表示状態を確認する
+    - _Requirements: 5.3, 5.4, 5.7, 5.8_
+
+- [ ] 15. ConfigPanel・SetupWizard コンポーネント（TypeScript）の実装
+  - [ ] 15.1 `src/components/ConfigPanel.tsx` を作成し、AIエンジン選択・APIキー入力・出力ディレクトリ設定・Config エクスポート/インポートを実装する
+    - 保存成功時に「設定を保存しました」を表示する
+    - _Requirements: 6.1, 6.4, 6.5, 6.6, 6.7_
+
+  - [ ] 15.2 `src/components/SetupWizard.tsx` を作成し、起動時に Config 未設定または APIキー未設定の場合に初回セットアップウィザードを表示する
+    - _Requirements: 6.3_
+
+  - [ ]* 15.3 `ConfigPanel` のユニットテストを Vitest で記述する
+    - エクスポート後に APIキーが含まれないことを確認する
+    - _Requirements: 6.5_
+
+- [ ] 16. LogViewer コンポーネント（TypeScript）の実装
+  - [ ] 16.1 `src/components/LogViewer.tsx` を作成し、ログエントリの一覧表示・レベルフィルタ・日付範囲フィルタを実装する
+    - 最大 1000 件表示
+    - _Requirements: 7.4, 7.6_
+
+  - [ ]* 16.2 `LogViewer` のユニットテストを Vitest で記述する
+    - フィルタリング後の件数上限と表示内容を確認する
+    - _Requirements: 7.4, 7.6_
+
+- [ ] 17. Checkpoint — フロントエンドコンポーネント層の統合確認
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 18. App ルーティングとコンポーネントの統合（TypeScript）
+  - [ ] 18.1 `src/App.tsx` に全コンポーネントを組み込み、生成フロー（PromptInput → ImagePreviewGrid → StampSetEditor → UploadPanel）の状態管理を実装する
+    - グローバル状態管理（Zustand または React Context）で `GenerationRequest`・`GeneratedImage[]`・`StampSet`・`UploadResult` を共有する
+    - エラー発生時の日本語エラーメッセージ表示ロジックを実装する
+    - _Requirements: 2.6, 3.4, 3.7, 7.1_
+
+  - [ ] 18.2 Electron の `preload.ts` に IPC API（`window.api`）を定義し、レンダラから `ipcRenderer.invoke` 経由でバックエンドを呼び出せるようにする
+    - _Requirements: 2.5, 5.2_
+
+- [ ] 19. 最終 Checkpoint — 全テスト通過と統合動作確認
+  - Ensure all tests pass, ask the user if questions arise.
+
+---
+
+## Notes
+
+- `*` 付きサブタスクは省略可能（MVP を早期リリースしたい場合はスキップ可）
+- 各タスクは前のタスクの成果物を前提として積み上げる構成になっている
+- 外部サービス（AI API・Playwright・OS Keychain）は全てモックを使用してテストする
+- PBT（プロパティベーステスト）は最低 100 イテレーションで実行すること
+- エラーメッセージは全て日本語で記述する（Design の方針に従う）
+
+---
+
+## Task Dependency Graph
+
+```json
+{
+  "waves": [
+    { "id": 0, "tasks": ["2.1", "3.1"] },
+    { "id": 1, "tasks": ["2.2", "2.3", "2.4", "3.2", "3.3", "3.4", "3.5", "5.1"] },
+    { "id": 2, "tasks": ["5.2", "5.3", "5.4", "5.5", "5.6", "6.1"] },
+    { "id": 3, "tasks": ["6.2", "7.1"] },
+    { "id": 4, "tasks": ["7.2", "7.3", "8.1"] },
+    { "id": 5, "tasks": ["8.2", "10.1", "11.1"] },
+    { "id": 6, "tasks": ["10.2", "10.3", "11.2", "12.1"] },
+    { "id": 7, "tasks": ["12.2", "12.3", "13.1"] },
+    { "id": 8, "tasks": ["13.2", "13.3", "13.4", "14.1"] },
+    { "id": 9, "tasks": ["14.2", "14.3", "15.1", "15.2"] },
+    { "id": 10, "tasks": ["15.3", "16.1"] },
+    { "id": 11, "tasks": ["16.2", "18.1"] },
+    { "id": 12, "tasks": ["18.2"] }
+  ]
+}
+```
