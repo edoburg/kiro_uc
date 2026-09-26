@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "cmd",
+      "args": ["/c", "npx", "@playwright/mcp@latest"],
+      "disabled": false
+    },
+    "git": {
+      "command": "cmd",
+      "args": ["/c", "uvx", "mcp-server-git"],
+      "disabled": false
+    }
+  }
+}
