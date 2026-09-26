@@ -1,0 +1,72 @@
+{
+  "name": "line-stamp-generator",
+  "version": "1.0.0",
+  "description": "LINEスタンプジェネレーター - AIを使ったLINEスタンプ自動生成デスクトップアプリ",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"electron .\"",
+    "build": "tsc && vite build && electron-builder",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest --run",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "zustand": "4.5.2"
+  },
+  "devDependencies": {
+    "@types/react": "18.2.66",
+    "@types/react-dom": "18.2.22",
+    "@types/node": "20.11.30",
+    "@vitejs/plugin-react": "4.2.1",
+    "concurrently": "8.2.2",
+    "electron": "29.1.4",
+    "electron-builder": "24.13.3",
+    "typescript": "5.2.2",
+    "vite": "5.2.0",
+    "vite-plugin-electron": "0.28.4",
+    "vite-plugin-electron-renderer": "0.14.5",
+    "vitest": "1.4.0",
+    "@vitest/ui": "1.4.0",
+    "fast-check": "3.17.2",
+    "@testing-library/react": "14.2.2",
+    "@testing-library/jest-dom": "6.4.2",
+    "jsdom": "24.0.0",
+    "eslint": "8.57.0",
+    "@typescript-eslint/eslint-plugin": "7.2.0",
+    "@typescript-eslint/parser": "7.2.0"
+  },
+  "build": {
+    "appId": "com.linestamp.generator",
+    "productName": "LINEスタンプジェネレーター",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "dist/**/*",
+      "backend/**/*",
+      "requirements.txt"
+    ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend"
+      }
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
