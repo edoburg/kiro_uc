@@ -31,7 +31,7 @@ line-stamp-generator/
 │       ├── config_service.py
 │       ├── log_service.py
 │       ├── image_processor_service.py
-│       ├── image_generator_service.py  # Adapterパターン + DALLEAdapter, SDAdapter, MJAdapter
+│       ├── image_generator_service.py  # Adapterパターン + OpenAIImageAdapter, SDAdapter, MJAdapter
 │       └── uploader_service.py         # Playwrightブラウザ自動化
 ├── tests/                  # Pythonテスト
 │   └── services/           # backend/services/ と同じ構造

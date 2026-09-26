@@ -7,7 +7,7 @@ LINEスタンプジェネレーターは、日本語ユーザーが自然言語�
 ### ゴール
 
 - デザインスキルや専門知識なしにLINEスタンプを作成・申請できる体験の提供
-- AI画像生成（DALL-E / Stable Diffusion / Midjourney）への統一インターフェース
+- AI画像生成（OpenAI gpt-image-2.5 / Stable Diffusion / Midjourney）への統一インターフェース
 - LINE規格（サイズ・フォーマット・ファイルサイズ）への自動準拠
 - LINE Creators MarketへのブラウザAPI経由の自動アップロード
 - APIキー・認証情報のセキュアな永続化
@@ -49,7 +49,7 @@ graph TB
     end
 
     subgraph AI["外部AIサービス"]
-        DALLE["DALL-E API\n（OpenAI）"]
+        GPTIMG["gpt-image-2.5 API\n（OpenAI）"]
         SD["Stable Diffusion\n（Local WebUI）"]
         MJ["Midjourney API"]
     end
@@ -65,7 +65,7 @@ graph TB
     PyChild --> UploadSvc
     PyChild --> ConfigSvc
     PyChild --> LogSvc
-    GenSvc --> DALLE
+    GenSvc --> GPTIMG
     GenSvc --> SD
     GenSvc --> MJ
     UploadSvc --> Browser
@@ -77,7 +77,7 @@ graph TB
 | 決定 | 理由 |
 |------|------|
 | Electron + Python FastAPI | TypeScript UIの豊富なエコシステムと、画像処理・ML系ライブラリが充実したPythonを組み合わせる。FastAPIをlocalhost子プロセスとして起動することで、IPC複雑性を最小化。 |
-| Adapter Patternで複数AIエンジンを抽象化 | DALL-E / SD / Midjourneyのインターフェースを統一し、将来の追加・切り替えを容易にする。 |
+| Adapter Patternで複数AIエンジンを抽象化 | OpenAI gpt-image-2.5 / SD / Midjourneyのインターフェースを統一し、将来の追加・切り替えを容易にする。 |
 | Playwrightによるブラウザ自動化アップロード | LINE Creators MarketのPublic APIが存在しないため、Webブラウザ操作による自動化を採用。ヘッドレスモードで動作。 |
 | OS Keychain（keytar / python-keyring）で認証情報を保管 | APIキーや認証情報をプレーンテキストで保存せず、OS提供のセキュアストレージを利用。 |
 
@@ -165,7 +165,7 @@ class ImageGeneratorAdapter(ABC):
     ) -> AsyncIterator[GenerationProgress]:
         ...
 
-class DALLEAdapter(ImageGeneratorAdapter): ...
+class OpenAIImageAdapter(ImageGeneratorAdapter): ...  # gpt-image-2.5 (flare / sunburst)
 class StableDiffusionAdapter(ImageGeneratorAdapter): ...
 class MidjourneyAdapter(ImageGeneratorAdapter): ...
 
@@ -174,6 +174,21 @@ class ImageGeneratorService:
     async def generate_batch(self, request: GenerationRequest) -> AsyncIterator[GenerationProgress]: ...
     async def generate_single(self, request: GenerationRequest, index: int) -> GeneratedImage: ...
 ```
+
+##### OpenAIImageAdapter（gpt-image-2.5）
+
+OpenAI の画像生成 API（`POST /v1/images/generations`）を呼び出す。モデルは `gpt-image-2.5-flare`（速度優先・デフォルト）または `gpt-image-2.5-sunburst`（品質・編集精度優先）を Config の `openai_model` から選択する。
+
+| パラメータ | 設定値 | 備考 |
+|-----------|--------|------|
+| `model` | `gpt-image-2.5-flare` / `gpt-image-2.5-sunburst` | Config の `openai_model` |
+| `background` | `transparent` | LINEスタンプは透過必須。`transparent` 使用時は `output_format` を `png`/`webp` にする必要がある |
+| `output_format` | `png` | 透過PNGを直接取得（後段の Pillow 変換前提を満たす） |
+| `quality` | `auto`（デフォルト） | `low`/`medium`/`high`/`xhigh`/`max`/`auto` から選択可能 |
+| `size` | `1024x1024` | 生成後に ImageProcessorService が LINE規格へリサイズ・中央クロップ |
+
+- APIキーは OS Keychain の `openai_api_key` から取得し、リクエストヘッダにのみ使用する。ログ・例外・Config ファイルには一切含めない。
+- `gpt-image-2.5` は `background="transparent"` で透過PNGを直接生成できるため、従来の DALL·E 3（透過非対応）に比べて LINEスタンプ用途との親和性が高い。ただし ImageProcessorService による規格変換（370×320px以内・1MB以下・アスペクト比37:32の中央クロップ）は引き続き必須とする。
 
 #### ImageProcessorService
 
@@ -308,9 +323,9 @@ interface UploadResult {
 }
 
 interface Config {
-  aiEngine: "dalle" | "stable_diffusion" | "midjourney";
+  aiEngine: "openai" | "stable_diffusion" | "midjourney";
   outputDirectory: string;
-  dalleModel: string;     // e.g. "dall-e-3"
+  openaiModel: "gpt-image-2.5-flare" | "gpt-image-2.5-sunburst";  // デフォルト: "gpt-image-2.5-flare"
   sdEndpoint: string;     // Stable Diffusion WebUI endpoint
   // APIキー・認証情報はOS Keychainに保存（Configファイルには含まない）
 }

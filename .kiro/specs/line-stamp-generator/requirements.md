@@ -13,7 +13,7 @@
 - **App（アプリ）**: 本LINEスタンプジェネレーターアプリケーション全体
 - **User（ユーザー）**: アプリを操作する日本語話者のエンドユーザー
 - **Prompt（プロンプト）**: ユーザーが自然言語で入力するスタンプ生成条件（テーマ・スタイル・キャラクターなど）
-- **AI_Image_Generator（AI画像生成エンジン）**: Stable Diffusion、DALL-E、Midjourneyなどの画像生成AIサービスまたはローカルモデル
+- **AI_Image_Generator（AI画像生成エンジン）**: Stable Diffusion、OpenAI gpt-image-2.5、Midjourneyなどの画像生成AIサービスまたはローカルモデル
 - **Generated_Image（生成画像）**: AI_Image_Generatorが出力した画像ファイル
 - **Image_Processor（画像処理エンジン）**: LINE規格に合わせた画像リサイズ・フォーマット変換・トリミングを行うモジュール
 - **Stamp_Set（スタンプセット）**: LINE Creators Marketへアップロードする1セット分のスタンプ画像群（タイトル・説明・メイン画像・サムネイル画像・個別スタンプ画像を含む）
@@ -56,7 +56,7 @@
 4. WHEN ユーザーが「プレビュー承認モード」で「やり直す」ボタンを押す, THE App SHALL 生成済みの1枚を破棄し、Prompt入力フォームに戻る
 5. WHEN AI_Image_Generator が画像生成を開始する, THE App SHALL 生成の進捗状況（生成済み枚数／全体枚数）を1秒以内の更新間隔でリアルタイムにユーザーへ表示する
 6. WHEN AI_Image_Generator が全枚数の生成を完了する, THE App SHALL 生成された全Generated_Imageのプレビューをグリッド形式で表示する。IF プレビューの表示に失敗する, THEN THE App SHALL 生成プロセス自体が失敗したものとして扱い、エラーメッセージとともに生成の再実行を促すボタンをユーザーに表示する
-7. THE App SHALL Stable Diffusion（ローカル）、DALL-E（API）、Midjourney（API）のうち少なくとも1つをAI_Image_Generatorとして設定できる機能をConfigに提供する
+7. THE App SHALL Stable Diffusion（ローカル）、OpenAI gpt-image-2.5（API）、Midjourney（API）のうち少なくとも1つをAI_Image_Generatorとして設定できる機能をConfigに提供する
 8. IF AI_Image_Generator との通信がタイムアウトまたはAPIエラーを返す, THEN THE App SHALL エラーの種別とエラーが発生した画像インデックスをユーザーに表示し、生成済みのGenerated_Imageは破棄せず保持し、ユーザーが生成を再試行または中断できるボタンを提供する
 9. WHEN ユーザーがGenerated_Imageのプレビューを確認する, THE App SHALL 個別のGenerated_Imageを削除または単独で再生成できるボタンを各画像に提供する（再生成は元のPromptとスタイル設定を使用する）
 10. IF AI_Image_Generator が1枚あたりの画像生成を開始してから180秒以内に結果を返さない, THEN THE App SHALL タイムアウトエラーとして処理し、該当画像の生成を停止してユーザーに通知する

@@ -33,7 +33,7 @@ Electron（メインプロセス）
 
 ## AI画像生成（Adapterパターン）
 
-- DALL-E（OpenAI API）
+- OpenAI gpt-image-2.5（OpenAI API、`gpt-image-2.5-flare` / `gpt-image-2.5-sunburst`。透過PNGは `background=transparent` + `output_format=png`）
 - Stable Diffusion（ローカルWebUIエンドポイント）
 - Midjourney（API）
 
