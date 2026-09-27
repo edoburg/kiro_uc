@@ -1,0 +1,373 @@
+/* LINEスタンプジェネレーター 基本スタイル
+ *
+ * 各コンポーネントが出力する className に対応する最小限のスタイルを定義する。
+ * 目的: レイアウト崩れによる「画面に何も表示されない」問題を解消し、
+ * 設定パネル・ログパネル・初回セットアップウィザードを正しく表示する。
+ */
+
+:root {
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-border: #d9dce1;
+  --color-text: #1f2329;
+  --color-muted: #5c636e;
+  --color-primary: #06c755; /* LINE グリーン */
+  --color-primary-hover: #05b34c;
+  --color-danger: #d93025;
+  --color-danger-bg: #fdecea;
+  --color-success: #1e7e34;
+  --color-success-bg: #e8f5ec;
+  --radius: 8px;
+  --gap: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, system-ui,
+    sans-serif;
+  color: var(--color-text);
+  background: var(--color-bg);
+  line-height: 1.6;
+}
+
+button {
+  cursor: pointer;
+  font: inherit;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: #eef0f3;
+}
+
+button:disabled,
+button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input,
+select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  width: 100%;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+h1,
+h2 {
+  margin: 0 0 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* App レイアウト                                                       */
+/* ------------------------------------------------------------------ */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app__header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  padding: 12px 24px;
+}
+
+.app__title {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+
+.app__nav {
+  display: flex;
+  gap: 8px;
+}
+
+.app__nav button[aria-current="page"] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.app__main,
+.app__panel {
+  flex: 1;
+  padding: 24px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.app__panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  margin: 24px auto;
+}
+
+.app__panel-close {
+  margin-bottom: 16px;
+}
+
+.app__error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin: 16px 24px 0;
+}
+
+.app__flow-actions {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ------------------------------------------------------------------ */
+/* 汎用セクション（設定・ログ・アップロード等）                          */
+/* ------------------------------------------------------------------ */
+
+.config-panel,
+.log-viewer,
+.upload-panel,
+.stamp-set-editor,
+.prompt-input {
+  display: block;
+}
+
+.config-panel__field,
+.log-viewer__filter-field {
+  margin-bottom: 16px;
+}
+
+.config-panel__note,
+.setup-wizard__hint {
+  color: var(--color-muted);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.config-panel__actions,
+.log-viewer__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.config-panel__save-button {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.config-panel__save-button:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+/* ------------------------------------------------------------------ */
+/* 通知メッセージ                                                       */
+/* ------------------------------------------------------------------ */
+
+.config-panel__error,
+.setup-wizard__error,
+.upload-panel__credentials-warning,
+.upload-panel__validation-warning,
+.upload-panel__result--error {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin: 8px 0 0;
+}
+
+.config-panel__success,
+.upload-panel__result--success {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin: 8px 0 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* 初回セットアップウィザード（モーダル）                               */
+/* ------------------------------------------------------------------ */
+
+.setup-wizard__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.setup-wizard {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 24px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.setup-wizard__title {
+  font-size: 18px;
+}
+
+.setup-wizard__description {
+  color: var(--color-muted);
+  margin-bottom: 16px;
+}
+
+.setup-wizard__field {
+  margin-bottom: 16px;
+}
+
+.setup-wizard__actions {
+  margin-top: 8px;
+}
+
+.setup-wizard__complete-button {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+  width: 100%;
+}
+
+/* ------------------------------------------------------------------ */
+/* 画像プレビューグリッド                                               */
+/* ------------------------------------------------------------------ */
+
+.preview-grid {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--gap);
+}
+
+.preview-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px;
+  background: var(--color-surface);
+}
+
+.preview-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+
+.preview-item-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.generation-progress {
+  margin: 8px 0;
+}
+
+.generation-error,
+.preview-item-error {
+  color: var(--color-danger);
+}
+
+/* ------------------------------------------------------------------ */
+/* アップロードパネル                                                   */
+/* ------------------------------------------------------------------ */
+
+.upload-panel__progress {
+  margin-top: 16px;
+}
+
+.upload-panel__progress-bar {
+  background: #e6e8ec;
+  border-radius: 999px;
+  height: 12px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.upload-panel__progress-fill {
+  background: var(--color-primary);
+  height: 100%;
+  transition: width 0.2s ease;
+}
+
+.upload-panel__upload-button {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.upload-panel__result {
+  margin-top: 16px;
+}
+
+/* ------------------------------------------------------------------ */
+/* ログビューア                                                         */
+/* ------------------------------------------------------------------ */
+
+.log-viewer__filters {
+  align-items: flex-end;
+}
+
+.log-viewer__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+
+.log-viewer__table th,
+.log-viewer__table td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.log-viewer__empty,
+.log-viewer__count {
+  color: var(--color-muted);
+}

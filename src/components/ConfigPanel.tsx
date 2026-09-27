@@ -143,14 +143,15 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
   onImportConfig,
 }) => {
   // Config フィールドの編集状態（認証情報は含めない）
-  const [form, setForm] = useState<Config>(config ?? EMPTY_CONFIG);
+  // 不完全な config（旧スキーマ・欠損フィールド）でも壊れないよう EMPTY_CONFIG で補完する
+  const [form, setForm] = useState<Config>({ ...EMPTY_CONFIG, ...(config ?? {}) });
   // API キー入力（Config には保存せず、キーチェーンにのみ送る）
   const [apiKey, setApiKey] = useState<string>("");
 
-  // 親から渡される config が変化したらフォームへ反映する
+  // 親から渡される config が変化したらフォームへ反映する（欠損フィールドは補完する）
   useEffect(() => {
     if (config) {
-      setForm(config);
+      setForm({ ...EMPTY_CONFIG, ...config });
     }
   }, [config]);
 
