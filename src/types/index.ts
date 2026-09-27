@@ -113,11 +113,11 @@ export interface UploadResult {
  */
 export interface Config {
   /** 使用する AI 画像生成エンジン */
-  aiEngine: "dalle" | "stable_diffusion" | "midjourney";
+  aiEngine: "openai" | "stable_diffusion" | "midjourney";
   /** 画像出力先ディレクトリ */
   outputDirectory: string;
-  /** DALL-E モデル名（例: "dall-e-3"） */
-  dalleModel: string;
+  /** OpenAI 画像生成モデル名（gpt-image-2.5-flare: 速度優先 / gpt-image-2.5-sunburst: 品質優先） */
+  openaiModel: "gpt-image-2.5-flare" | "gpt-image-2.5-sunburst";
   /** Stable Diffusion WebUI エンドポイント URL */
   sdEndpoint: string;
 }

@@ -55,7 +55,7 @@ _valid_config = st.builds(
     Config,
     ai_engine=st.text(max_size=30),
     output_directory=st.text(max_size=60),
-    dalle_model=st.text(max_size=30),
+    openai_model=st.text(max_size=30),
     sd_endpoint=st.text(max_size=60),
 )
 
@@ -72,7 +72,7 @@ _non_string_value = st.one_of(
 
 # 既知の Config フィールド名（少なくとも 1 つを不正な値で埋めることで検証を失敗させる）
 _config_field = st.sampled_from(
-    ["ai_engine", "output_directory", "dalle_model", "sd_endpoint"]
+    ["ai_engine", "output_directory", "openai_model", "sd_endpoint"]
 )
 
 
@@ -151,7 +151,7 @@ class TestImportDataPreservation:
         original = Config(
             ai_engine="stable_diffusion",
             output_directory="/tmp/out",
-            dalle_model="dall-e-3",
+            openai_model="gpt-image-2.5-flare",
             sd_endpoint="http://localhost:7860",
         )
         service.save(original)
@@ -167,7 +167,7 @@ class TestImportDataPreservation:
         service = ConfigService()
         service._config_path = tmp_path / "config.json"
 
-        service.save(Config(ai_engine="dalle"))
+        service.save(Config(ai_engine="openai"))
         service.import_from_dict({"ai_engine": "midjourney", "sd_endpoint": "http://x"})
 
         loaded = service.load()

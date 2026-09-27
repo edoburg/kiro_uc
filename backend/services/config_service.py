@@ -32,9 +32,9 @@ class ConfigSchema(BaseModel):
     フィールドは backend.models.Config のデータクラスと対応させる。
     """
 
-    ai_engine: str = "dalle"
+    ai_engine: str = "openai"
     output_directory: str = ""
-    dalle_model: str = "dall-e-3"
+    openai_model: str = "gpt-image-2.5-flare"
     sd_endpoint: str = ""
 
 
@@ -106,7 +106,7 @@ class ConfigService:
         return Config(
             ai_engine=schema.ai_engine,
             output_directory=schema.output_directory,
-            dalle_model=schema.dalle_model,
+            openai_model=schema.openai_model,
             sd_endpoint=schema.sd_endpoint,
         )
 
@@ -165,7 +165,7 @@ class ConfigService:
         new_config = Config(
             ai_engine=schema.ai_engine,
             output_directory=schema.output_directory,
-            dalle_model=schema.dalle_model,
+            openai_model=schema.openai_model,
             sd_endpoint=schema.sd_endpoint,
         )
         self.save(new_config)

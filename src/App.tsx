@@ -467,7 +467,7 @@ const AppInner: React.FC = () => {
         config: {
           aiEngine: data.aiEngine as Config["aiEngine"],
           outputDirectory: data.outputDirectory as string,
-          dalleModel: data.dalleModel as string,
+          openaiModel: data.openaiModel as Config["openaiModel"],
           sdEndpoint: data.sdEndpoint as string,
         },
       });

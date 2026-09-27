@@ -176,14 +176,14 @@ class TestLogEntry:
 class TestConfig:
     def test_defaults(self):
         config = Config()
-        assert config.ai_engine == "dalle"
-        assert config.dalle_model == "dall-e-3"
+        assert config.ai_engine == "openai"
+        assert config.openai_model == "gpt-image-2.5-flare"
 
     def test_custom_values(self):
         config = Config(
             ai_engine="stable_diffusion",
             output_directory="/tmp/stamps",
-            dalle_model="dall-e-3",
+            openai_model="gpt-image-2.5-sunburst",
             sd_endpoint="http://localhost:7860",
         )
         assert config.ai_engine == "stable_diffusion"

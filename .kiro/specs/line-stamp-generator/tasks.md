@@ -241,9 +241,9 @@ Electron（メインプロセス）＋ React/TypeScript（レンダラ）＋ Pyt
 - [x] 19. 最終 Checkpoint — 全テスト通過と統合動作確認
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 20. AI画像生成エンジンを DALL-E から OpenAI gpt-image-2.5 へ移行
+- [x] 20. AI画像生成エンジンを DALL-E から OpenAI gpt-image-2.5 へ移行
   - 既存タスク 6.1 / 6.2 で実装した `DALLEAdapter`（DALL·E 3）を OpenAI gpt-image-2.5 へ置き換える変更対応。既存タスクの完了履歴は保持し、本タスク群で差分を追跡する。
-  - [ ] 20.1 バックエンド: `backend/services/image_generator_service.py` の `DALLEAdapter` を `OpenAIImageAdapter` にリネームし、`POST /v1/images/generations` を gpt-image-2.5 で呼び出すよう実装する
+  - [x] 20.1 バックエンド: `backend/services/image_generator_service.py` の `DALLEAdapter` を `OpenAIImageAdapter` にリネームし、`POST /v1/images/generations` を gpt-image-2.5 で呼び出すよう実装する
     - モデルは Config の `openai_model`（`gpt-image-2.5-flare` / `gpt-image-2.5-sunburst`、デフォルト `gpt-image-2.5-flare`）で切り替える
     - `background="transparent"`・`output_format="png"` を指定して透過PNGを取得する（`transparent` 使用時は `output_format` を png/webp にする必要がある）
     - `size` は `1024x1024` を要求し、LINE規格変換は従来どおり ImageProcessorService に委ねる
@@ -251,17 +251,17 @@ Electron（メインプロセス）＋ React/TypeScript（レンダラ）＋ Pyt
     - `engine_name` を `"openai"` に、`DEFAULT_MODEL` を `"gpt-image-2.5-flare"` に更新する
     - _Requirements: 2.1, 2.7, 2.8, 2.10 / 担当: backend-dev_
 
-  - [ ] 20.2 バックエンド: データモデルとルーターのエンジン識別子・モデル名を更新する
+  - [x] 20.2 バックエンド: データモデルとルーターのエンジン識別子・モデル名を更新する
     - `backend/models.py` / `backend/services/config_service.py`: `dalle_model`（既定 `dall-e-3`）を `openai_model`（既定 `gpt-image-2.5-flare`）へ、`ai_engine` の既定 `"dalle"` を `"openai"` へ変更する
     - `backend/main.py`: `_ADAPTER_BY_ENGINE` の `"dalle"` を `"openai"` に、フォールバックとリクエストモデルの既定値を更新する
     - _Requirements: 6.1 / 担当: backend-dev_
 
-  - [ ] 20.3 フロントエンド: `Config` 型と ConfigPanel を更新する
+  - [x] 20.3 フロントエンド: `Config` 型と ConfigPanel を更新する
     - `src/types/index.ts`: `aiEngine` の `"dalle"` を `"openai"` に、`dalleModel: string` を `openaiModel: "gpt-image-2.5-flare" | "gpt-image-2.5-sunburst"` に変更する
     - `src/components/ConfigPanel.tsx`: エンジン選択肢を「OpenAI (gpt-image-2.5)」に、モデル選択UI（flare / sunburst）を提供する（UIテキストは日本語）
     - _Requirements: 6.1 / 担当: frontend-dev_
 
-  - [ ] 20.4 テスト更新: 移行に伴う既存テストの改修と新規検証を行う
+  - [x] 20.4 テスト更新: 移行に伴う既存テストの改修と新規検証を行う
     - Python: `DALLEAdapter` 向けテストを `OpenAIImageAdapter` 用に書き換え、gpt-image-2.5 のパラメータ（`background=transparent`・`output_format=png`・モデル切替）をモックで検証する。`test_models.py` の `dalle_model`/`ai_engine` 既定値アサーションを更新する
     - TS: `configPanel.test.tsx` などの `dalleModel`/`"dalle"` を `openaiModel`/`"openai"` に更新する
     - 外部 API はすべてモックする。APIキーがテスト出力・Config に現れないことを確認する

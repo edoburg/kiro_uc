@@ -6,7 +6,7 @@ import type { Config } from "../types/index";
  * 値そのもの（APIキー・パスワード）は Config には含めず、キーチェーンにのみ保存する。
  */
 export const CREDENTIAL_KEYS = {
-  /** AI 画像生成 API キー（DALL-E / Midjourney など） */
+  /** AI 画像生成 API キー（OpenAI / Midjourney など） */
   aiApiKey: "ai_api_key",
   /** LINE Creators Market ログインメールアドレス */
   lineEmail: "line_email",
@@ -16,9 +16,18 @@ export const CREDENTIAL_KEYS = {
 
 /** AI エンジンの選択肢と日本語ラベル（要件 6.1） */
 const AI_ENGINE_OPTIONS: ReadonlyArray<{ value: Config["aiEngine"]; label: string }> = [
-  { value: "dalle", label: "DALL-E（OpenAI）" },
+  { value: "openai", label: "OpenAI（gpt-image-2.5）" },
   { value: "stable_diffusion", label: "Stable Diffusion（ローカル WebUI）" },
   { value: "midjourney", label: "Midjourney" },
+];
+
+/** OpenAI（gpt-image-2.5）モデルの選択肢と日本語ラベル（要件 6.1） */
+const OPENAI_MODEL_OPTIONS: ReadonlyArray<{
+  value: Config["openaiModel"];
+  label: string;
+}> = [
+  { value: "gpt-image-2.5-flare", label: "gpt-image-2.5-flare（速度優先）" },
+  { value: "gpt-image-2.5-sunburst", label: "gpt-image-2.5-sunburst（品質優先）" },
 ];
 
 /** Config オブジェクトに含めてはならない、認証情報系のフィールド名（要件 6.5） */
@@ -62,7 +71,7 @@ export interface ConfigPanelProps {
 /**
  * import 対象データが Config スキーマを満たすかを検証する純粋関数（要件 6.6, 6.7）。
  *
- * - 必須フィールド（aiEngine / outputDirectory / dalleModel / sdEndpoint）の型を確認する。
+ * - 必須フィールド（aiEngine / outputDirectory / openaiModel / sdEndpoint）の型を確認する。
  * - 認証情報系フィールド（api_key / password 等）が含まれていないことを確認する。
  *
  * 検証に失敗した場合はエラーメッセージ（日本語）を返し、成功した場合は null を返す。
@@ -81,7 +90,7 @@ export function validateImportedConfig(data: unknown): string | null {
   }
 
   const validEngines: ReadonlyArray<Config["aiEngine"]> = [
-    "dalle",
+    "openai",
     "stable_diffusion",
     "midjourney",
   ];
@@ -91,8 +100,8 @@ export function validateImportedConfig(data: unknown): string | null {
   if (typeof obj.outputDirectory !== "string") {
     return "出力ディレクトリの設定値が不正です。";
   }
-  if (typeof obj.dalleModel !== "string") {
-    return "DALL-E モデルの設定値が不正です。";
+  if (typeof obj.openaiModel !== "string") {
+    return "OpenAI モデルの設定値が不正です。";
   }
   if (typeof obj.sdEndpoint !== "string") {
     return "Stable Diffusion エンドポイントの設定値が不正です。";
@@ -103,9 +112,9 @@ export function validateImportedConfig(data: unknown): string | null {
 
 /** 空の Config（config 未取得時の初期値） */
 const EMPTY_CONFIG: Config = {
-  aiEngine: "dalle",
+  aiEngine: "openai",
   outputDirectory: "",
-  dalleModel: "dall-e-3",
+  openaiModel: "gpt-image-2.5-flare",
   sdEndpoint: "",
 };
 
@@ -113,7 +122,7 @@ const EMPTY_CONFIG: Config = {
  * ConfigPanel
  *
  * アプリ設定画面（要件 6）。
- * - AI エンジン選択（dalle / stable_diffusion / midjourney）（要件 6.1）
+ * - AI エンジン選択（openai / stable_diffusion / midjourney）（要件 6.1）
  * - API キー入力（キーチェーン保存、Config には含めない）（要件 6.1, 6.2）
  * - 出力ディレクトリ設定（要件 6.1）
  * - Config エクスポート／インポート（要件 6.5, 6.6, 6.7）
@@ -254,7 +263,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
       setForm({
         aiEngine: data.aiEngine as Config["aiEngine"],
         outputDirectory: data.outputDirectory as string,
-        dalleModel: data.dalleModel as string,
+        openaiModel: data.openaiModel as Config["openaiModel"],
         sdEndpoint: data.sdEndpoint as string,
       });
       setSuccessMessage("設定をインポートしました");
@@ -315,17 +324,24 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
         </p>
       </div>
 
-      {/* --- DALL-E モデル（aiEngine が dalle のとき有効） --- */}
+      {/* --- OpenAI モデル（aiEngine が openai のとき有効） --- */}
       <div className="config-panel__field">
-        <label htmlFor="config-dalle-model">DALL-E モデル</label>
-        <input
-          id="config-dalle-model"
-          name="dalleModel"
-          type="text"
-          value={form.dalleModel}
-          onChange={(e) => updateField("dalleModel", e.target.value)}
-          disabled={form.aiEngine !== "dalle"}
-        />
+        <label htmlFor="config-openai-model">OpenAI モデル</label>
+        <select
+          id="config-openai-model"
+          name="openaiModel"
+          value={form.openaiModel}
+          onChange={(e) =>
+            updateField("openaiModel", e.target.value as Config["openaiModel"])
+          }
+          disabled={form.aiEngine !== "openai"}
+        >
+          {OPENAI_MODEL_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* --- Stable Diffusion エンドポイント（aiEngine が stable_diffusion のとき有効） --- */}

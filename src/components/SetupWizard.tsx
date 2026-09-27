@@ -21,7 +21,7 @@ const AI_ENGINE_OPTIONS: ReadonlyArray<{
   value: Config["aiEngine"];
   label: string;
 }> = [
-  { value: "dalle", label: "DALL-E（OpenAI API）" },
+  { value: "openai", label: "OpenAI（gpt-image-2.5）" },
   { value: "stable_diffusion", label: "Stable Diffusion（ローカル WebUI）" },
   { value: "midjourney", label: "Midjourney（API）" },
 ];
@@ -69,7 +69,7 @@ function buildConfig(
     aiEngine,
     outputDirectory: outputDirectory.trim(),
     // 各エンジンの詳細設定は Config 画面で調整する想定。ここでは既定値を設定する。
-    dalleModel: "dall-e-3",
+    openaiModel: "gpt-image-2.5-flare",
     sdEndpoint: "http://127.0.0.1:7860",
   };
 }
@@ -85,7 +85,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({
   onSaveCredential,
   onComplete,
 }) => {
-  const [aiEngine, setAiEngine] = useState<Config["aiEngine"]>("dalle");
+  const [aiEngine, setAiEngine] = useState<Config["aiEngine"]>("openai");
   const [apiKey, setApiKey] = useState("");
   const [outputDirectory, setOutputDirectory] = useState("");
   const [error, setError] = useState<string | null>(null);

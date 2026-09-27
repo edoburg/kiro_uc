@@ -54,9 +54,9 @@ def _make_service(tmp_dir: str) -> ConfigService:
 # 有効な Config を生成するストラテジ（全フィールド文字列）
 _valid_config = st.builds(
     Config,
-    ai_engine=st.sampled_from(["dalle", "stable_diffusion", "midjourney"]),
+    ai_engine=st.sampled_from(["openai", "stable_diffusion", "midjourney"]),
     output_directory=st.text(max_size=200),
-    dalle_model=st.text(min_size=1, max_size=50),
+    openai_model=st.text(min_size=1, max_size=50),
     sd_endpoint=st.text(max_size=200),
 )
 

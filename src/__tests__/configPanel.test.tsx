@@ -20,9 +20,9 @@ import type { Config } from "../types/index";
 
 /** テスト用の有効な Config（認証情報を含まない） */
 const baseConfig: Config = {
-  aiEngine: "dalle",
+  aiEngine: "openai",
   outputDirectory: "/Users/name/line-stamps",
-  dalleModel: "dall-e-3",
+  openaiModel: "gpt-image-2.5-flare",
   sdEndpoint: "",
 };
 
@@ -79,7 +79,7 @@ describe("ConfigPanel", () => {
       expect(props.onSaveConfig).toHaveBeenCalledTimes(1);
       const savedConfig = vi.mocked(props.onSaveConfig).mock.calls[0][0] as Config;
       expect(Object.keys(savedConfig).sort()).toEqual(
-        ["aiEngine", "dalleModel", "outputDirectory", "sdEndpoint"].sort(),
+        ["aiEngine", "openaiModel", "outputDirectory", "sdEndpoint"].sort(),
       );
       // Config のいずれの値にも API キーが混入していない
       expect(JSON.stringify(savedConfig)).not.toContain(DUMMY_SECRET);
@@ -132,6 +132,22 @@ describe("ConfigPanel", () => {
       const savedConfig = vi.mocked(props.onSaveConfig).mock.calls[0][0] as Config;
       expect(savedConfig.aiEngine).toBe("midjourney");
     });
+
+    it("OpenAI モデル選択（flare / sunburst）が保存する Config に反映される", async () => {
+      const props = makeProps();
+      render(<ConfigPanel {...props} />);
+
+      fireEvent.change(screen.getByLabelText("OpenAI モデル"), {
+        target: { value: "gpt-image-2.5-sunburst" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "設定を保存" }));
+
+      await waitFor(() => {
+        expect(props.onSaveConfig).toHaveBeenCalledTimes(1);
+      });
+      const savedConfig = vi.mocked(props.onSaveConfig).mock.calls[0][0] as Config;
+      expect(savedConfig.openaiModel).toBe("gpt-image-2.5-sunburst");
+    });
   });
 
   describe("エクスポート（要件 6.5）", () => {
@@ -140,9 +156,9 @@ describe("ConfigPanel", () => {
       const DUMMY_SECRET = "dummy-should-not-appear";
       // onExportConfig は sanitize 済みデータを返す（認証情報を含まない）
       const sanitized: Record<string, unknown> = {
-        aiEngine: "dalle",
+        aiEngine: "openai",
         outputDirectory: "/Users/name/line-stamps",
-        dalleModel: "dall-e-3",
+        openaiModel: "gpt-image-2.5-flare",
         sdEndpoint: "",
       };
       const onExportConfig = vi.fn().mockResolvedValue(sanitized);
@@ -216,9 +232,9 @@ describe("ConfigPanel", () => {
       render(<ConfigPanel {...props} />);
 
       const withSecret = JSON.stringify({
-        aiEngine: "dalle",
+        aiEngine: "openai",
         outputDirectory: "/tmp",
-        dalleModel: "dall-e-3",
+        openaiModel: "gpt-image-2.5-flare",
         sdEndpoint: "",
         api_key: "dummy-leak-value",
       });
@@ -237,7 +253,7 @@ describe("ConfigPanel", () => {
       const valid = JSON.stringify({
         aiEngine: "stable_diffusion",
         outputDirectory: "/tmp/out",
-        dalleModel: "dall-e-3",
+        openaiModel: "gpt-image-2.5-flare",
         sdEndpoint: "http://127.0.0.1:7860",
       });
       selectImportFile(valid);
@@ -254,9 +270,9 @@ describe("ConfigPanel", () => {
       const sensitiveFields = ["api_key", "apiKey", "password", "token", "secret"];
       for (const field of sensitiveFields) {
         const data = {
-          aiEngine: "dalle",
+          aiEngine: "openai",
           outputDirectory: "/tmp",
-          dalleModel: "dall-e-3",
+          openaiModel: "gpt-image-2.5-flare",
           sdEndpoint: "",
           [field]: "x",
         };
@@ -269,7 +285,7 @@ describe("ConfigPanel", () => {
         validateImportedConfig({
           aiEngine: "midjourney",
           outputDirectory: "/tmp",
-          dalleModel: "dall-e-3",
+          openaiModel: "gpt-image-2.5-flare",
           sdEndpoint: "",
         }),
       ).toBeNull();
@@ -282,7 +298,7 @@ describe("ConfigPanel", () => {
         validateImportedConfig({
           aiEngine: "unknown",
           outputDirectory: "/tmp",
-          dalleModel: "dall-e-3",
+          openaiModel: "gpt-image-2.5-flare",
           sdEndpoint: "",
         }),
       ).not.toBeNull();

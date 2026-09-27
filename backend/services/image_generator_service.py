@@ -1,7 +1,7 @@
 ﻿"""
 ImageGeneratorService — AI 画像生成エンジンへの統一インターフェース（Adapter パターン）
 
-複数の AI 画像生成エンジン（DALL-E / Stable Diffusion / Midjourney）を共通の
+複数の AI 画像生成エンジン（OpenAI gpt-image-2.5 / Stable Diffusion / Midjourney）を共通の
 ImageGeneratorAdapter 抽象基底クラスで抽象化し、上位層からはエンジン差異を
 意識せずに画像生成を行えるようにする（tech.md: すべてのアダプタは共通の
 ImageGeneratorAdapter 抽象基底クラスを実装する）。
@@ -86,13 +86,13 @@ class ImageGeneratorAdapter(ABC):
     """
     AI 画像生成エンジンに対する共通アダプタ。
 
-    各エンジン向けの具象アダプタ（DALLEAdapter / StableDiffusionAdapter /
+    各エンジン向けの具象アダプタ（OpenAIImageAdapter / StableDiffusionAdapter /
     MidjourneyAdapter）はこのクラスを継承し、_generate_one を実装する。
     generate() の枠組み（枚数ループ・タイムアウト・エラー種別への変換）は
     基底クラスで共通化する。
     """
 
-    #: このアダプタが使用する AI エンジン識別子（'dalle' | 'stable_diffusion' | 'midjourney'）
+    #: このアダプタが使用する AI エンジン識別子（'openai' | 'stable_diffusion' | 'midjourney'）
     engine_name: str = ""
 
     def __init__(self, config_service: Optional[ConfigService] = None) -> None:
@@ -111,7 +111,7 @@ class ImageGeneratorAdapter(ABC):
         """
         1 枚の画像を生成し、生成された画像の一時ファイルパスを返す。
 
-        具象アダプタはここで各エンジンの API 呼び出し（DALL-E / SD / Midjourney）を
+        具象アダプタはここで各エンジンの API 呼び出し（OpenAI gpt-image-2.5 / SD / Midjourney）を
         実装する。API エラー時は GenerationAPIError を送出すること。
 
         Args:
@@ -217,32 +217,44 @@ class ImageGeneratorAdapter(ABC):
 # ---------------------------------------------------------------------------
 
 
-class DALLEAdapter(ImageGeneratorAdapter):
+class OpenAIImageAdapter(ImageGeneratorAdapter):
     """
-    DALL-E（OpenAI API）向けアダプタ。
+    OpenAI gpt-image-2.5（OpenAI Images API）向けアダプタ。
 
-    APIキーは OS Keychain の "openai_api_key" から取得する。
+    モデルは Config の openai_model（'gpt-image-2.5-flare' / 'gpt-image-2.5-sunburst'、
+    デフォルト 'gpt-image-2.5-flare'）で切り替える。LINEスタンプは透過必須のため、
+    background='transparent' + output_format='png' を指定して透過PNGを直接取得する
+    （transparent 使用時は output_format を png/webp にする必要がある）。生成後の
+    LINE規格変換（サイズ・ファイルサイズ・アスペクト比）は ImageProcessorService に委ねる。
+
+    APIキーは OS Keychain の "openai_api_key" から取得する（値はログ・例外・Config に
+    含めない。tech.md セキュリティルール）。
     """
 
-    engine_name = "dalle"
+    engine_name = "openai"
     CREDENTIAL_KEY = "openai_api_key"
-    DEFAULT_MODEL = "dall-e-3"
+    DEFAULT_MODEL = "gpt-image-2.5-flare"
+
+    #: gpt-image-2.5 の生成パラメータ（透過PNG・生成サイズ）
+    BACKGROUND = "transparent"
+    OUTPUT_FORMAT = "png"
+    IMAGE_SIZE = "1024x1024"
 
     async def _generate_one(
         self, prompt: str, style: Optional[str], index: int
     ) -> str:
         # APIキーの存在確認（値はログ・例外に含めない）
         api_key = self._require_credential(self.CREDENTIAL_KEY)
-        model = self._config.load().dalle_model or self.DEFAULT_MODEL
+        model = self._config.load().openai_model or self.DEFAULT_MODEL
 
-        image_bytes = await self._call_dalle_api(api_key, model, prompt, style, index)
+        image_bytes = await self._call_openai_api(api_key, model, prompt, style, index)
 
         path = self._new_temp_path(self.engine_name, index)
         with open(path, "wb") as fp:
             fp.write(image_bytes)
         return path
 
-    async def _call_dalle_api(
+    async def _call_openai_api(
         self,
         api_key: str,
         model: str,
@@ -251,14 +263,19 @@ class DALLEAdapter(ImageGeneratorAdapter):
         index: int,
     ) -> bytes:
         """
-        OpenAI DALL-E API を呼び出して画像バイト列を取得する。
+        OpenAI Images API（POST /v1/images/generations）を gpt-image-2.5 で呼び出し、
+        画像バイト列を取得する。
+
+        リクエストには model（gpt-image-2.5-flare / -sunburst）・prompt・
+        background='transparent'・output_format='png'・size='1024x1024' を指定する。
+        APIキーは Authorization ヘッダにのみ使用し、ログ・例外には含めない。
 
         実際の HTTP 呼び出しはここで httpx を用いて実装する。テストではこの
         メソッドをモックに差し替える（外部サービスへの実通信は行わない）。
         API エラー時は GenerationAPIError を送出すること。
         """
         raise NotImplementedError(
-            "DALL-E API 呼び出しは未実装です（テストではモックに差し替えてください）。"
+            "OpenAI gpt-image-2.5 API 呼び出しは未実装です（テストではモックに差し替えてください）。"
         )
 
 

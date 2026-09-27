@@ -2,7 +2,7 @@
 ImageGeneratorService / 各アダプタのユニットテスト（pytest + unittest.mock）
 
 対象: backend/services/image_generator_service.py
-  - DALLEAdapter / StableDiffusionAdapter / MidjourneyAdapter
+  - OpenAIImageAdapter / StableDiffusionAdapter / MidjourneyAdapter
 
 検証内容（Requirements 2.8, 2.10）:
   - タイムアウト時: generate() が error_type == 'timeout' の GenerationError を載せた
@@ -12,6 +12,7 @@ ImageGeneratorService / 各アダプタのユニットテスト（pytest + unitt
   - ハッピーパス: モックした _call_*_api が成功すると latest_image_path が設定された
     完了進捗（error is None, completed が増加）を yield する
   - 認証情報未設定時: api_error を yield する
+  - gpt-image-2.5 のパラメータ（background=transparent / output_format=png / モデル切替）を確認する
 
 セキュリティ（tech.md）:
   - 外部サービス・OS Keychain は一切呼び出さず、すべてモックする
@@ -29,10 +30,10 @@ from backend.services.image_generator_service import (
     DEFAULT_TIMEOUT_SECONDS,
     ERROR_API,
     ERROR_TIMEOUT,
-    DALLEAdapter,
     GenerationAPIError,
     ImageGeneratorService,
     MidjourneyAdapter,
+    OpenAIImageAdapter,
     StableDiffusionAdapter,
 )
 
@@ -47,15 +48,18 @@ _PLACEHOLDER_SD_ENDPOINT = "http://localhost:7860"
 
 
 def _make_config_mock(
-    *, credential: str | None = _PLACEHOLDER_API_KEY, sd_endpoint: str = ""
+    *,
+    credential: str | None = _PLACEHOLDER_API_KEY,
+    sd_endpoint: str = "",
+    openai_model: str = "gpt-image-2.5-flare",
 ) -> MagicMock:
     """OS Keychain / 設定ファイルに触れないモック ConfigService を作る。"""
     config_mock = MagicMock()
     config_mock.get_credential.return_value = credential
     config_mock.load.return_value = Config(
-        ai_engine="dalle",
+        ai_engine="openai",
         output_directory="",
-        dalle_model="dall-e-3",
+        openai_model=openai_model,
         sd_endpoint=sd_endpoint,
     )
     return config_mock
@@ -67,17 +71,17 @@ async def _collect(agen) -> list:
 
 
 # ---------------------------------------------------------------------------
-# DALLEAdapter
+# OpenAIImageAdapter（gpt-image-2.5）
 # ---------------------------------------------------------------------------
 
 
-class TestDALLEAdapter:
+class TestOpenAIImageAdapter:
     async def test_happy_path_yields_done_progress_with_image_path(self):
-        """_call_dalle_api が成功すると latest_image_path 付きの完了進捗を yield する。"""
-        adapter = DALLEAdapter(config_service=_make_config_mock())
+        """_call_openai_api が成功すると latest_image_path 付きの完了進捗を yield する。"""
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
 
         with patch.object(
-            adapter, "_call_dalle_api", new=AsyncMock(return_value=b"\x89PNG-fake")
+            adapter, "_call_openai_api", new=AsyncMock(return_value=b"\x89PNG-fake")
         ):
             results = await _collect(
                 adapter.generate(prompt="ねこ", style="かわいい", count=2)
@@ -93,13 +97,13 @@ class TestDALLEAdapter:
 
     async def test_timeout_yields_timeout_error(self):
         """_generate_one が制限時間を超えると error_type == 'timeout' を yield する。"""
-        adapter = DALLEAdapter(config_service=_make_config_mock())
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
 
         async def _slow_api(*args, **kwargs):
             await asyncio.sleep(10)  # tiny timeout に対して確実に超過させる
             return b"never"
 
-        with patch.object(adapter, "_call_dalle_api", new=_slow_api):
+        with patch.object(adapter, "_call_openai_api", new=_slow_api):
             # 実 180 秒を待たず、tiny な timeout_seconds でタイムアウトを再現
             results = await _collect(
                 adapter.generate(
@@ -115,12 +119,12 @@ class TestDALLEAdapter:
         assert results[0].latest_image_path is None
 
     async def test_api_error_yields_api_error(self):
-        """_call_dalle_api が GenerationAPIError を送出すると error_type == 'api_error'。"""
-        adapter = DALLEAdapter(config_service=_make_config_mock())
+        """_call_openai_api が GenerationAPIError を送出すると error_type == 'api_error'。"""
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
 
         with patch.object(
             adapter,
-            "_call_dalle_api",
+            "_call_openai_api",
             new=AsyncMock(side_effect=GenerationAPIError("API 呼び出し失敗")),
         ):
             results = await _collect(
@@ -134,11 +138,11 @@ class TestDALLEAdapter:
         assert results[0].completed == 0
 
     async def test_missing_credential_yields_api_error(self):
-        """認証情報が未設定なら api_error を yield する（_call_dalle_api は呼ばれない）。"""
-        adapter = DALLEAdapter(config_service=_make_config_mock(credential=None))
+        """認証情報が未設定なら api_error を yield する（_call_openai_api は呼ばれない）。"""
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock(credential=None))
 
         call_api = AsyncMock(return_value=b"unused")
-        with patch.object(adapter, "_call_dalle_api", new=call_api):
+        with patch.object(adapter, "_call_openai_api", new=call_api):
             results = await _collect(
                 adapter.generate(prompt="ねこ", style=None, count=1)
             )
@@ -150,11 +154,11 @@ class TestDALLEAdapter:
 
     async def test_credential_value_never_leaks_into_error_message(self):
         """エラーメッセージに認証情報の値が漏洩しないこと（セキュリティ）。"""
-        adapter = DALLEAdapter(config_service=_make_config_mock())
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
 
         with patch.object(
             adapter,
-            "_call_dalle_api",
+            "_call_openai_api",
             new=AsyncMock(side_effect=GenerationAPIError("失敗")),
         ):
             results = await _collect(
@@ -164,6 +168,28 @@ class TestDALLEAdapter:
         error = results[0].error
         assert error is not None
         assert _PLACEHOLDER_API_KEY not in error.message
+
+    async def test_uses_transparent_png_params(self):
+        """gpt-image-2.5 は透過PNGパラメータ（background=transparent / output_format=png）を持つ。"""
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
+        assert adapter.BACKGROUND == "transparent"
+        assert adapter.OUTPUT_FORMAT == "png"
+        assert adapter.engine_name == "openai"
+        assert adapter.DEFAULT_MODEL == "gpt-image-2.5-flare"
+
+    async def test_model_switch_flare_and_sunburst(self):
+        """Config の openai_model が _call_openai_api に渡るモデルを切り替える。"""
+        for model in ("gpt-image-2.5-flare", "gpt-image-2.5-sunburst"):
+            adapter = OpenAIImageAdapter(
+                config_service=_make_config_mock(openai_model=model)
+            )
+            call_api = AsyncMock(return_value=b"\x89PNG-fake")
+            with patch.object(adapter, "_call_openai_api", new=call_api):
+                await _collect(adapter.generate(prompt="ねこ", style=None, count=1))
+
+            # _call_openai_api(api_key, model, prompt, style, index) の第 2 引数がモデル
+            called_model = call_api.await_args.args[1]
+            assert called_model == model
 
 
 # ---------------------------------------------------------------------------
@@ -322,12 +348,12 @@ class TestImageGeneratorService:
         assert DEFAULT_TIMEOUT_SECONDS == 180
 
     async def test_generate_batch_happy_path(self):
-        adapter = DALLEAdapter(config_service=_make_config_mock())
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
         service = ImageGeneratorService(adapter=adapter)
         request = GenerationRequest(prompt="ねこ", count=3, style="かわいい")
 
         with patch.object(
-            adapter, "_call_dalle_api", new=AsyncMock(return_value=b"\x89PNG-fake")
+            adapter, "_call_openai_api", new=AsyncMock(return_value=b"\x89PNG-fake")
         ):
             results = await _collect(service.generate_batch(request))
 
@@ -336,13 +362,13 @@ class TestImageGeneratorService:
         assert results[-1].completed == 3
 
     async def test_generate_single_api_error_returns_error_image(self):
-        adapter = DALLEAdapter(config_service=_make_config_mock())
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
         service = ImageGeneratorService(adapter=adapter)
         request = GenerationRequest(prompt="ねこ", count=1)
 
         with patch.object(
             adapter,
-            "_call_dalle_api",
+            "_call_openai_api",
             new=AsyncMock(side_effect=GenerationAPIError("失敗")),
         ):
             image = await service.generate_single(request, index=5)
@@ -354,12 +380,12 @@ class TestImageGeneratorService:
         assert image.temp_file_path is None
 
     async def test_generate_single_happy_path_returns_done_image(self):
-        adapter = DALLEAdapter(config_service=_make_config_mock())
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
         service = ImageGeneratorService(adapter=adapter)
         request = GenerationRequest(prompt="ねこ", count=1)
 
         with patch.object(
-            adapter, "_call_dalle_api", new=AsyncMock(return_value=b"\x89PNG-fake")
+            adapter, "_call_openai_api", new=AsyncMock(return_value=b"\x89PNG-fake")
         ):
             image = await service.generate_single(request, index=0)
 

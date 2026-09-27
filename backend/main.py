@@ -47,10 +47,10 @@ from backend.models import (
 )
 from backend.services.config_service import ConfigService
 from backend.services.image_generator_service import (
-    DALLEAdapter,
     ImageGeneratorAdapter,
     ImageGeneratorService,
     MidjourneyAdapter,
+    OpenAIImageAdapter,
     StableDiffusionAdapter,
 )
 from backend.services.image_processor_service import ImageProcessorService
@@ -84,7 +84,7 @@ uploader_service = UploaderService()
 
 # AI エンジン識別子 -> アダプタクラスのマッピング
 _ADAPTER_BY_ENGINE: dict[str, type[ImageGeneratorAdapter]] = {
-    "dalle": DALLEAdapter,
+    "openai": OpenAIImageAdapter,
     "stable_diffusion": StableDiffusionAdapter,
     "midjourney": MidjourneyAdapter,
 }
@@ -96,7 +96,7 @@ def _build_generator_service(engine: str) -> ImageGeneratorService:
     アダプタは ConfigService を共有し、APIキーは OS Keychain 経由で取得する
     （tech.md セキュリティルール）。
     """
-    adapter_cls = _ADAPTER_BY_ENGINE.get(engine, DALLEAdapter)
+    adapter_cls = _ADAPTER_BY_ENGINE.get(engine, OpenAIImageAdapter)
     adapter = adapter_cls(config_service=config_service)
     return ImageGeneratorService(adapter)
 
@@ -145,9 +145,9 @@ async def health() -> dict[str, str]:
 
 
 class ConfigRequest(BaseModel):
-    ai_engine: str = "dalle"
+    ai_engine: str = "openai"
     output_directory: str = ""
-    dalle_model: str = "dall-e-3"
+    openai_model: str = "gpt-image-2.5-flare"
     sd_endpoint: str = ""
 
 
@@ -184,7 +184,7 @@ async def save_config(config: ConfigRequest) -> dict[str, str]:
             Config(
                 ai_engine=config.ai_engine,
                 output_directory=config.output_directory,
-                dalle_model=config.dalle_model,
+                openai_model=config.openai_model,
                 sd_endpoint=config.sd_endpoint,
             )
         )

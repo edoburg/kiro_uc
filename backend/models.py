@@ -236,14 +236,14 @@ class Config:
     永続化先: ~/.line-stamp-gen/config.json
     """
 
-    ai_engine: str = "dalle"
-    """使用する AI 画像生成エンジン ('dalle' | 'stable_diffusion' | 'midjourney')"""
+    ai_engine: str = "openai"
+    """使用する AI 画像生成エンジン ('openai' | 'stable_diffusion' | 'midjourney')"""
 
     output_directory: str = ""
     """画像出力先ディレクトリ"""
 
-    dalle_model: str = "dall-e-3"
-    """DALL-E モデル名"""
+    openai_model: str = "gpt-image-2.5-flare"
+    """OpenAI 画像生成モデル名 ('gpt-image-2.5-flare' | 'gpt-image-2.5-sunburst')"""
 
     sd_endpoint: str = ""
     """Stable Diffusion WebUI エンドポイント URL"""

@@ -58,7 +58,7 @@ _valid_config = st.builds(
     Config,
     ai_engine=st.text(max_size=30),
     output_directory=st.text(max_size=60),
-    dalle_model=st.text(max_size=30),
+    openai_model=st.text(max_size=30),
     sd_endpoint=st.text(max_size=60),
 )
 
