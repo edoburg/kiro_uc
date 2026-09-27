@@ -16,6 +16,8 @@ pyproject.toml で asyncio_mode = "auto" が設定されているため、async 
 
 from __future__ import annotations
 
+import base64
+import io
 import os
 
 import pytest
@@ -105,6 +107,23 @@ async def test_process_image_creates_output_files(service, tmp_path):
     # 3 種類はそれぞれ別ファイルであること
     paths = {result.stamp_path, result.main_image_path, result.thumbnail_path}
     assert len(paths) == 3
+
+
+async def test_process_image_returns_renderable_preview_data_urls(service, tmp_path):
+    """3種類のプレビューをレンダラーで表示できるdata URLとして返す。"""
+    source_path = _write_source_png(str(tmp_path), 800, 600)
+
+    result = await service.process_image(source_path)
+
+    for data_url in (
+        result.stamp_data_url,
+        result.main_image_data_url,
+        result.thumbnail_data_url,
+    ):
+        prefix, encoded = data_url.split(",", maxsplit=1)
+        assert prefix == "data:image/png;base64"
+        with Image.open(io.BytesIO(base64.b64decode(encoded))) as image:
+            assert image.format == "PNG"
 
 
 async def test_process_image_validation_passed_for_normal_image(service, tmp_path):

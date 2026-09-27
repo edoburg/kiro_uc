@@ -105,6 +105,9 @@ def test_process_response_is_camel_case(monkeypatch, tmp_path: Path) -> None:
         "stampPath": "C:/tmp/source_stamp.png",
         "mainImagePath": "C:/tmp/source_main.png",
         "thumbnailPath": "C:/tmp/source_thumb.png",
+        "stampDataUrl": "",
+        "mainImageDataUrl": "",
+        "thumbnailDataUrl": "",
         "validation": {
             "passed": True,
             "sizeOk": True,

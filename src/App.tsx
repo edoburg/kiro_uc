@@ -25,6 +25,10 @@ import {
 } from "./stores/appStore";
 import type { LogEntry } from "./types/index";
 import { toUploadStartRequest } from "./utils/ipcMappers";
+import {
+  buildStampSetFromGeneratedImages,
+  toStampImage,
+} from "./utils/stampSet";
 
 /**
  * window.api が存在するときのみ callback を実行する小さなガード。
@@ -278,6 +282,30 @@ const AppInner: React.FC = () => {
 
   // --- StampSet 編集 ---
 
+  const handleBuildStampSet = useCallback(async (): Promise<void> => {
+    const api = typeof window !== "undefined" ? window.api : undefined;
+    if (!api?.image?.process) {
+      setError("画像変換APIを利用できません。");
+      return;
+    }
+    if (state.generatedImages.length === 0) {
+      setError("変換できる生成画像がありません。");
+      return;
+    }
+
+    dispatch({ type: "START_STAMP_SET_PROCESSING" });
+    const result = await buildStampSetFromGeneratedImages(
+      state.generatedImages,
+      (sourcePath) => api.image.process(sourcePath),
+    );
+    dispatch({ type: "SET_STAMP_SET", stampSet: result.stampSet });
+    if (result.failedCount > 0) {
+      setError(
+        `${result.failedCount}枚の画像を変換できませんでした。編集画面から再試行または差し替えを行ってください。`,
+      );
+    }
+  }, [dispatch, setError, state.generatedImages]);
+
   const handleTitleChange = useCallback(
     (title: string): void => {
       dispatch({ type: "UPDATE_STAMP_SET_TITLE", title });
@@ -292,28 +320,57 @@ const AppInner: React.FC = () => {
     [dispatch],
   );
 
+  const processStampImageAt = useCallback(
+    async (index: number, sourcePath: string, fallbackPreviewUrl = ""): Promise<void> => {
+      const api = typeof window !== "undefined" ? window.api : undefined;
+      if (!api?.image?.process) {
+        setError("画像変換APIを利用できません。");
+        return;
+      }
+
+      dispatch({ type: "START_STAMP_IMAGE_PROCESSING", index, sourcePath });
+      try {
+        const processed = await api.image.process(sourcePath);
+        dispatch({
+          type: "UPDATE_STAMP_IMAGE",
+          index,
+          image: toStampImage(sourcePath, processed, fallbackPreviewUrl),
+        });
+        setError(null);
+      } catch (err) {
+        const message = toJapaneseError(
+          err,
+          `画像 ${index + 1} の変換に失敗しました。`,
+        );
+        dispatch({ type: "STAMP_IMAGE_PROCESS_FAILED", index, message });
+        setError(message);
+      }
+    },
+    [dispatch, setError],
+  );
+
   const handleReplaceImage = useCallback(
     (index: number, file: File): void => {
-      // 差し替えは IPC 経由で画像処理を行う（要件 3.4, 3.7）。
-      // File 由来のパスは Electron 環境でのみ利用可能。
       const sourcePath = (file as File & { path?: string }).path;
       if (!sourcePath) {
         setError("差し替え画像のパスを取得できませんでした。");
         return;
       }
-      const call = withApi((api) =>
-        api.image?.process ? api.image.process(sourcePath) : undefined,
-      );
-      call?.catch((err) => {
-        setError(
-          toJapaneseError(
-            err,
-            `画像 ${index + 1} の差し替え処理に失敗しました。`,
-          ),
-        );
-      });
+      void processStampImageAt(index, sourcePath);
     },
-    [setError],
+    [processStampImageAt, setError],
+  );
+
+  const handleRetryImage = useCallback(
+    (index: number): void => {
+      const image = state.stampSet?.images[index];
+      if (!image?.sourcePath) {
+        setError("再試行する元画像のパスがありません。画像を差し替えてください。");
+        return;
+      }
+      void processStampImageAt(index, image.sourcePath, image.stampPreviewUrl);
+    },
+    [processStampImageAt, setError, state.stampSet],
   );
 
   const handleExport = useCallback(
@@ -650,12 +707,7 @@ const AppInner: React.FC = () => {
                     </p>
                     <button
                       type="button"
-                      onClick={() =>
-                        dispatch({
-                          type: "SET_STAMP_SET",
-                          stampSet: buildStampSetFromImages(),
-                        })
-                      }
+                      onClick={() => void handleBuildStampSet()}
                       disabled={state.generatedImages.length === 0}
                     >
                       スタンプセットを編集する
@@ -665,6 +717,13 @@ const AppInner: React.FC = () => {
             </>
           )}
 
+          {state.step === "processing" && (
+            <section className="app__processing" aria-live="polite" role="status">
+              <h2>LINE規格へ変換しています</h2>
+              <p>スタンプ・メイン・サムネイル画像を順番に作成しています…</p>
+            </section>
+          )}
+
           {/* 3. スタンプセット編集（要件 3, 4） */}
           {state.step === "edit" && state.stampSet && (
             <StampSetEditor
@@ -672,6 +731,7 @@ const AppInner: React.FC = () => {
               onTitleChange={handleTitleChange}
               onDescriptionChange={handleDescriptionChange}
               onReplaceImage={handleReplaceImage}
+              onRetryImage={handleRetryImage}
               onExport={handleExport}
               onUpload={handleStartUpload}
             />
@@ -692,31 +752,6 @@ const AppInner: React.FC = () => {
     </div>
   );
 
-  /**
-   * プレビュー画像から編集用 StampSet の初期値を組み立てる。
-   * 実際の LINE 規格変換結果はバックエンド（image:process）由来だが、
-   * ここでは編集画面へ遷移するための最小の StampSet を用意する。
-   */
-  function buildStampSetFromImages() {
-    return {
-      title: "",
-      description: "",
-      images: state.generatedImages.map((img) => ({
-        stampPath: img.dataUrl,
-        mainImagePath: img.dataUrl,
-        thumbnailPath: img.dataUrl,
-        validationResult: {
-          passed: false,
-          sizeOk: false,
-          formatOk: false,
-          fileSizeOk: false,
-          fileSizeExceeded: false,
-          details: "変換前",
-        },
-      })),
-      isValidForUpload: false,
-    };
-  }
 };
 
 /** クレデンシャル取得結果が「設定済み」を意味するか判定する。 */

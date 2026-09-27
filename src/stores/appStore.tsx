@@ -8,10 +8,12 @@ import type {
   Config,
   GeneratedImage,
   GenerationRequest,
+  StampImage,
   StampSet,
   UploadResult,
 } from "../types/index";
 import type { UploadProgress } from "../components/UploadPanel";
+import { recalculateStampSet } from "../utils/stampSet";
 
 /**
  * アプリのグローバル状態（React Context + useReducer）。
@@ -35,6 +37,7 @@ export type FlowStep =
   | "prompt"
   | "generating"
   | "preview"
+  | "processing"
   | "edit"
   | "upload";
 
@@ -90,7 +93,11 @@ export type AppAction =
   | { type: "DELETE_GENERATED_IMAGE"; index: number }
   | { type: "GENERATION_COMPLETE" }
   | { type: "GENERATION_FAILED"; message: string }
+  | { type: "START_STAMP_SET_PROCESSING" }
   | { type: "SET_STAMP_SET"; stampSet: StampSet }
+  | { type: "START_STAMP_IMAGE_PROCESSING"; index: number; sourcePath: string }
+  | { type: "UPDATE_STAMP_IMAGE"; index: number; image: StampImage }
+  | { type: "STAMP_IMAGE_PROCESS_FAILED"; index: number; message: string }
   | { type: "UPDATE_STAMP_SET_TITLE"; title: string }
   | { type: "UPDATE_STAMP_SET_DESCRIPTION"; description: string }
   | { type: "START_UPLOAD" }
@@ -193,14 +200,81 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         error: action.message,
       };
 
+    case "START_STAMP_SET_PROCESSING":
+      return { ...state, step: "processing", error: null };
+
     case "SET_STAMP_SET":
-      return { ...state, stampSet: action.stampSet, step: "edit" };
+      return {
+        ...state,
+        stampSet: recalculateStampSet(action.stampSet),
+        step: "edit",
+      };
+
+    case "START_STAMP_IMAGE_PROCESSING":
+      return state.stampSet
+        ? {
+            ...state,
+            stampSet: recalculateStampSet({
+              ...state.stampSet,
+              images: state.stampSet.images.map((image, index) =>
+                index === action.index
+                  ? {
+                      ...image,
+                      sourcePath: action.sourcePath,
+                      processingStatus: "processing",
+                      processingError: undefined,
+                    }
+                  : image,
+              ),
+            }),
+          }
+        : state;
+
+    case "UPDATE_STAMP_IMAGE":
+      return state.stampSet
+        ? {
+            ...state,
+            stampSet: recalculateStampSet({
+              ...state.stampSet,
+              images: state.stampSet.images.map((image, index) =>
+                index === action.index ? action.image : image,
+              ),
+            }),
+          }
+        : state;
+
+    case "STAMP_IMAGE_PROCESS_FAILED":
+      return state.stampSet
+        ? {
+            ...state,
+            stampSet: recalculateStampSet({
+              ...state.stampSet,
+              images: state.stampSet.images.map((image, index) =>
+                index === action.index
+                  ? {
+                      ...image,
+                      processingStatus: "error",
+                      processingError: action.message,
+                      validationResult: {
+                        ...image.validationResult,
+                        passed: false,
+                        details: action.message,
+                      },
+                    }
+                  : image,
+              ),
+            }),
+          }
+        : state;
 
     case "UPDATE_STAMP_SET_TITLE":
       return state.stampSet
         ? {
             ...state,
-            stampSet: { ...state.stampSet, title: action.title },
+            stampSet: recalculateStampSet({
+              ...state.stampSet,
+              title: action.title,
+            }),
           }
         : state;
 
@@ -208,7 +282,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return state.stampSet
         ? {
             ...state,
-            stampSet: { ...state.stampSet, description: action.description },
+            stampSet: recalculateStampSet({
+              ...state.stampSet,
+              description: action.description,
+            }),
           }
         : state;
 

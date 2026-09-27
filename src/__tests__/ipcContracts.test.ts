@@ -9,9 +9,14 @@ function makeStampSet(): StampSet {
     description: "説明",
     images: [
       {
+        sourcePath: "C:/tmp/source.png",
         stampPath: "C:/tmp/stamp.png",
         mainImagePath: "C:/tmp/main.png",
         thumbnailPath: "C:/tmp/thumb.png",
+        stampPreviewUrl: "data:image/png;base64,c3RhbXA=",
+        mainImagePreviewUrl: "data:image/png;base64,bWFpbg==",
+        thumbnailPreviewUrl: "data:image/png;base64,dGh1bWI=",
+        processingStatus: "done",
         validationResult: {
           passed: true,
           sizeOk: true,

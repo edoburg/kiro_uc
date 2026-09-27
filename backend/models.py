@@ -54,6 +54,15 @@ class ProcessedImageSet:
     validation: ValidationResult
     """LINE 規格バリデーション結果"""
 
+    stamp_data_url: str = ""
+    """スタンプ画像のプレビュー用 data URL"""
+
+    main_image_data_url: str = ""
+    """メイン画像のプレビュー用 data URL"""
+
+    thumbnail_data_url: str = ""
+    """サムネイル画像のプレビュー用 data URL"""
+
 
 # ---------------------------------------------------------------------------
 # 画像生成

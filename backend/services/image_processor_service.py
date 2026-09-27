@@ -17,6 +17,7 @@ structure.md の規約に従い、本サービスはステートレスとする�
 
 from __future__ import annotations
 
+import base64
 import io
 import os
 from dataclasses import dataclass
@@ -339,6 +340,9 @@ class ImageProcessorService:
             main_image_path=main_path,
             thumbnail_path=thumb_path,
             validation=validation,
+            stamp_data_url=self._png_data_url(stamp_bytes),
+            main_image_data_url=self._png_data_url(main_bytes),
+            thumbnail_data_url=self._png_data_url(thumb_bytes),
         )
 
     # ------------------------------------------------------------------
@@ -416,3 +420,9 @@ class ImageProcessorService:
         """バイト列をファイルに書き込む。"""
         with open(path, "wb") as fp:
             fp.write(data)
+
+    @staticmethod
+    def _png_data_url(data: bytes) -> str:
+        """PNGバイト列をレンダラー表示用のdata URLへ変換する。"""
+        encoded = base64.b64encode(data).decode("ascii")
+        return f"data:image/png;base64,{encoded}"

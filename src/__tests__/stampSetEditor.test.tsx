@@ -25,9 +25,14 @@ afterEach(() => {
 /** テスト用の適合済み StampImage を 1 件生成する */
 function makeImage(index: number): StampImage {
   return {
+    sourcePath: `source-${index}.png`,
     stampPath: `stamp-${index}.png`,
     mainImagePath: `main-${index}.png`,
     thumbnailPath: `thumb-${index}.png`,
+    stampPreviewUrl: `data:image/png;base64,stamp-${index}`,
+    mainImagePreviewUrl: `data:image/png;base64,main-${index}`,
+    thumbnailPreviewUrl: `data:image/png;base64,thumb-${index}`,
+    processingStatus: "done",
     validationResult: {
       passed: true,
       sizeOk: true,
@@ -44,7 +49,7 @@ function makeStampSet(overrides: Partial<StampSet> = {}): StampSet {
   return {
     title: "サンプルスタンプ",
     description: "説明文",
-    images: [makeImage(0), makeImage(1)],
+    images: Array.from({ length: 8 }, (_, index) => makeImage(index)),
     isValidForUpload: true,
     ...overrides,
   };
@@ -56,6 +61,7 @@ function renderEditor(stampSet: StampSet) {
     onTitleChange: vi.fn(),
     onDescriptionChange: vi.fn(),
     onReplaceImage: vi.fn(),
+    onRetryImage: vi.fn(),
     onExport: vi.fn(),
     onUpload: vi.fn(),
   } satisfies Omit<StampSetEditorProps, "stampSet">;
@@ -165,7 +171,24 @@ describe("StampSetEditor - コールバック発火", () => {
   });
 
   it("LINE規格未通過のときアップロードボタンは無効（要件 5.6）", () => {
-    renderEditor(makeStampSet({ isValidForUpload: false }));
+    const invalidImage = {
+      ...makeImage(0),
+      validationResult: {
+        ...makeImage(0).validationResult,
+        passed: false,
+        sizeOk: false,
+        details: "画像サイズが規格外です",
+      },
+    };
+    renderEditor(
+      makeStampSet({
+        images: [
+          invalidImage,
+          ...Array.from({ length: 7 }, (_, index) => makeImage(index + 1)),
+        ],
+        isValidForUpload: false,
+      }),
+    );
     expect(
       screen.getByRole("button", {
         name: "LINE Creators Market へアップロード",
@@ -225,5 +248,37 @@ describe("StampSetEditor - 画像差し替え（要件 4.4, 4.5, 4.6）", () => 
 
     expect(handlers.onReplaceImage).toHaveBeenCalledTimes(1);
     expect(handlers.onReplaceImage).toHaveBeenCalledWith(0, pngFile);
+  });
+
+  it("変換失敗画像では再試行ボタンを表示してコールバックを呼ぶ", () => {
+    const failed = {
+      ...makeImage(0),
+      processingStatus: "error" as const,
+      processingError: "変換に失敗しました。",
+      validationResult: {
+        ...makeImage(0).validationResult,
+        passed: false,
+        details: "変換に失敗しました。",
+      },
+    };
+    const set = makeStampSet();
+    set.images[0] = failed;
+    const handlers = renderEditor(set);
+
+    fireEvent.click(screen.getByRole("button", { name: "変換を再試行" }));
+    expect(handlers.onRetryImage).toHaveBeenCalledWith(0);
+    expect(screen.getByText(/変換失敗/)).toBeInTheDocument();
+  });
+
+  it("規定外の画像枚数ではアップロード不可だがエクスポートは可能", () => {
+    renderEditor(makeStampSet({ images: [makeImage(0)] }));
+
+    expect(
+      screen.getByRole("button", { name: "LINE Creators Market へアップロード" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "エクスポート（ZIP保存）" }),
+    ).toBeEnabled();
+    expect(screen.getByText(/スタンプ画像の枚数/)).toBeInTheDocument();
   });
 });

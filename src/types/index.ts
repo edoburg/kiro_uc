@@ -65,12 +65,22 @@ export interface ValidationResult {
 
 /** LINE 規格変換済みの個別スタンプ画像（3 種類セット） */
 export interface StampImage {
+  /** 変換元画像のバックエンド側パス（再試行用） */
+  sourcePath: string;
   /** スタンプ画像パス（W370×H320px 以内、透過 PNG） */
   stampPath: string;
   /** メイン画像パス（W240×H240px、PNG） */
   mainImagePath: string;
   /** サムネイル画像パス（W96×H74px、PNG） */
   thumbnailPath: string;
+  /** 各画像のレンダラー表示用 data URL */
+  stampPreviewUrl: string;
+  mainImagePreviewUrl: string;
+  thumbnailPreviewUrl: string;
+  /** 変換状態 */
+  processingStatus: "processing" | "done" | "error";
+  /** 変換失敗時の日本語メッセージ */
+  processingError?: string;
   /** LINE 規格バリデーション結果 */
   validationResult: ValidationResult;
 }
@@ -93,6 +103,9 @@ export interface ProcessedImageSet {
   mainImagePath: string;
   thumbnailPath: string;
   validation: ValidationResult;
+  stampDataUrl: string;
+  mainImageDataUrl: string;
+  thumbnailDataUrl: string;
 }
 
 // --- アップロード ---

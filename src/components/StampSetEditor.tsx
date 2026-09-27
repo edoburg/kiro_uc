@@ -5,6 +5,7 @@ import {
   validateFileType,
   validateTitle,
 } from "../utils/validation";
+import { validateStampSet } from "../utils/stampSet";
 
 /** タイトル最大文字数（要件 4.2 / LINE 規格） */
 const MAX_TITLE_LENGTH = 40;
@@ -34,6 +35,8 @@ export interface StampSetEditorProps {
   onDescriptionChange: (description: string) => void;
   /** 個別スタンプ画像の差し替え（PNG のみ、要件 4.4, 4.6） */
   onReplaceImage: (index: number, file: File) => void;
+  /** 変換失敗した画像を同じ変換元から再処理する */
+  onRetryImage: (index: number) => void;
   /** エクスポート開始（タイトル検証通過時のみ、要件 4.7, 4.8） */
   onExport: (outputPath: string) => void;
   /** アップロード開始（要件 5.1, 5.6） */
@@ -60,6 +63,7 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
   onTitleChange,
   onDescriptionChange,
   onReplaceImage,
+  onRetryImage,
   onExport,
   onUpload,
 }) => {
@@ -80,8 +84,11 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
     [stampSet.description],
   );
 
-  // エクスポートはタイトル検証通過時のみ許可（要件 4.7）
-  const isExportDisabled = titleError !== null;
+  const setValidation = useMemo(
+    () => validateStampSet(stampSet),
+    [stampSet],
+  );
+  const isExportDisabled = !setValidation.canExport;
 
   const handleReplaceClick = (index: number): void => {
     fileInputRefs.current[index]?.click();
@@ -203,6 +210,17 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
         </div>
       </div>
 
+      {setValidation.issues.length > 0 && (
+        <div className="stamp-set-editor__set-validation" role="status">
+          <h3>確認が必要な項目</h3>
+          <ul>
+            {setValidation.issues.map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* --- スタンプ画像プレビュー一覧（要件 4.1） --- */}
       <ul className="stamp-set-editor__grid" aria-label="スタンプ画像一覧">
         {stampSet.images.map((image, index) => {
@@ -213,17 +231,17 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
               <div className="stamp-set-editor__previews">
                 <img
                   className="stamp-set-editor__preview stamp-set-editor__preview--stamp"
-                  src={image.stampPath}
+                  src={image.stampPreviewUrl || image.stampPath}
                   alt={`スタンプ画像 ${index + 1}`}
                 />
                 <img
                   className="stamp-set-editor__preview stamp-set-editor__preview--main"
-                  src={image.mainImagePath}
+                  src={image.mainImagePreviewUrl || image.mainImagePath}
                   alt={`メイン画像 ${index + 1}`}
                 />
                 <img
                   className="stamp-set-editor__preview stamp-set-editor__preview--thumb"
-                  src={image.thumbnailPath}
+                  src={image.thumbnailPreviewUrl || image.thumbnailPath}
                   alt={`サムネイル画像 ${index + 1}`}
                 />
               </div>
@@ -234,7 +252,11 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
                   image.validationResult.passed ? " is-ok" : " is-ng"
                 }`}
               >
-                {image.validationResult.passed
+                {image.processingStatus === "processing"
+                  ? "LINE規格へ変換中…"
+                  : image.processingStatus === "error"
+                    ? `変換失敗（${image.processingError ?? image.validationResult.details}）`
+                    : image.validationResult.passed
                   ? "LINE規格: 適合"
                   : `LINE規格: 不適合（${image.validationResult.details}）`}
               </p>
@@ -256,11 +278,21 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
                 type="button"
                 className="stamp-set-editor__replace-button"
                 onClick={() => handleReplaceClick(index)}
+                disabled={image.processingStatus === "processing"}
                 aria-label={`スタンプ画像 ${index + 1} を差し替え`}
                 aria-describedby={replaceError ? errorId : undefined}
               >
-                差し替え
+                {image.processingStatus === "processing" ? "変換中…" : "差し替え"}
               </button>
+              {image.processingStatus === "error" && image.sourcePath && (
+                <button
+                  type="button"
+                  className="stamp-set-editor__retry-button"
+                  onClick={() => onRetryImage(index)}
+                >
+                  変換を再試行
+                </button>
+              )}
               {replaceError && (
                 <p
                   id={errorId}
@@ -289,7 +321,7 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
           type="button"
           className="stamp-set-editor__upload-button"
           onClick={onUpload}
-          disabled={!stampSet.isValidForUpload}
+          disabled={!setValidation.isValidForUpload}
         >
           LINE Creators Market へアップロード
         </button>
