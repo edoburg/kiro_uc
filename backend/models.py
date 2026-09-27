@@ -65,6 +65,38 @@ class ProcessedImageSet:
 
 
 # ---------------------------------------------------------------------------
+# ZIPエクスポート
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ExportImage:
+    """ZIPへ格納する1スタンプ分の変換済み画像パス。"""
+
+    stamp_path: str
+    main_image_path: str
+    thumbnail_path: str
+
+
+@dataclass
+class ExportStampSet:
+    """ZIPエクスポート用のスタンプセット。"""
+
+    title: str
+    description: str
+    images: list[ExportImage]
+
+
+@dataclass
+class ExportResult:
+    """ZIPエクスポート結果。"""
+
+    zip_path: str
+    file_name: str
+    image_count: int
+
+
+# ---------------------------------------------------------------------------
 # 画像生成
 # ---------------------------------------------------------------------------
 

@@ -23,7 +23,7 @@ const PNG_MIME_TYPE = "image/png";
  * - stampSet: 表示・編集対象のスタンプセット
  * - onTitleChange / onDescriptionChange: メタデータ変更の通知（親が状態を保持）
  * - onReplaceImage: 個別画像の差し替え（PNG のみ、要件 4.4〜4.6）
- * - onExport: エクスポート先パスを受け取りエクスポートを開始（要件 4.7, 4.8）
+ * - onExport: ネイティブ保存先選択とエクスポートを開始（要件 4.7, 4.8）
  * - onUpload: アップロード開始（要件 5.6 のボタン活性制御に isValidForUpload を使用）
  */
 export interface StampSetEditorProps {
@@ -38,7 +38,11 @@ export interface StampSetEditorProps {
   /** 変換失敗した画像を同じ変換元から再処理する */
   onRetryImage: (index: number) => void;
   /** エクスポート開始（タイトル検証通過時のみ、要件 4.7, 4.8） */
-  onExport: (outputPath: string) => void;
+  onExport: () => void;
+  /** ZIP生成中フラグ */
+  isExporting: boolean;
+  /** ZIP生成成功時のメッセージ */
+  exportMessage: string | null;
   /** アップロード開始（要件 5.1, 5.6） */
   onUpload: () => void;
 }
@@ -65,6 +69,8 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
   onReplaceImage,
   onRetryImage,
   onExport,
+  isExporting,
+  exportMessage,
   onUpload,
 }) => {
   // 差し替え対象の隠しファイル入力を画像ごとに参照する
@@ -132,15 +138,7 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
       return;
     }
 
-    // エクスポート先をユーザーに指定させる（実際のダイアログは IPC 経由）
-    const outputPath =
-      typeof window !== "undefined" && typeof window.prompt === "function"
-        ? window.prompt("エクスポート先のパスを入力してください")
-        : "";
-    if (!outputPath) {
-      return;
-    }
-    onExport(outputPath);
+    onExport();
   };
 
   return (
@@ -313,9 +311,9 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
           type="button"
           className="stamp-set-editor__export-button"
           onClick={handleExport}
-          disabled={isExportDisabled}
+          disabled={isExportDisabled || isExporting}
         >
-          エクスポート（ZIP保存）
+          {isExporting ? "ZIPを作成中…" : "エクスポート（ZIP保存）"}
         </button>
         <button
           type="button"
@@ -326,6 +324,11 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
           LINE Creators Market へアップロード
         </button>
       </div>
+      {exportMessage && (
+        <p className="stamp-set-editor__export-message" role="status">
+          {exportMessage}
+        </p>
+      )}
     </section>
   );
 };

@@ -54,6 +54,23 @@ class ProcessRequestPayload(ApiModel):
     source_path: str
 
 
+class ExportImagePayload(ApiModel):
+    stamp_path: str
+    main_image_path: str
+    thumbnail_path: str
+
+
+class ExportStampSetPayload(ApiModel):
+    title: str
+    description: str = ""
+    images: list[ExportImagePayload]
+
+
+class ExportRequestPayload(ApiModel):
+    stamp_set: ExportStampSetPayload
+    output_directory: str
+
+
 class UploadImagePayload(ApiModel):
     stamp_path: str
     main_image_path: str = ""

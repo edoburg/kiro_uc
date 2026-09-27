@@ -28,6 +28,32 @@ export interface StreamHandle {
   streamId: string;
 }
 
+export interface ExportImageRequest {
+  stampPath: string;
+  mainImagePath: string;
+  thumbnailPath: string;
+}
+
+export interface ExportCreateRequest {
+  stampSet: {
+    title: string;
+    description: string;
+    images: ExportImageRequest[];
+  };
+  defaultDirectory: string;
+}
+
+export interface ExportBackendRequest {
+  stampSet: ExportCreateRequest["stampSet"];
+  outputDirectory: string;
+}
+
+export interface ExportResult {
+  zipPath: string;
+  fileName: string;
+  imageCount: number;
+}
+
 export interface LogQueryParams {
   level?: string;
   dateFrom?: string;
@@ -119,6 +145,9 @@ export interface RendererApi {
   image: {
     generate: (request: GenerationRequest) => Promise<StreamHandle>;
     process: (sourcePath: string) => Promise<ProcessedImageSet>;
+  };
+  archive: {
+    create: (request: ExportCreateRequest) => Promise<ExportResult | null>;
   };
   upload: {
     start: (request: UploadStartRequest) => Promise<StreamHandle>;

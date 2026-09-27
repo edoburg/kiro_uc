@@ -24,7 +24,10 @@ import {
   useAppStore,
 } from "./stores/appStore";
 import type { LogEntry } from "./types/index";
-import { toUploadStartRequest } from "./utils/ipcMappers";
+import {
+  toExportCreateRequest,
+  toUploadStartRequest,
+} from "./utils/ipcMappers";
 import {
   buildStampSetFromGeneratedImages,
   toStampImage,
@@ -77,6 +80,12 @@ const AppInner: React.FC = () => {
       dispatch({ type: "SET_ERROR", message }),
     [dispatch],
   );
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [exportMessage, setExportMessage] = React.useState<string | null>(null);
+
+  useEffect(() => {
+    setExportMessage(null);
+  }, [state.stampSet]);
 
   // --- 起動時: Config・クレデンシャルの状態を取得してセットアップ要否を判定（要件 6.3） ---
   useEffect(() => {
@@ -373,14 +382,35 @@ const AppInner: React.FC = () => {
     [processStampImageAt, setError, state.stampSet],
   );
 
-  const handleExport = useCallback(
-    (_outputPath: string): void => {
-      // エクスポート（ZIP 化）はバックエンド側で実施される想定。
-      // 失敗時は日本語メッセージを表示する（要件 3.4 のエラー方針）。
-      setError(null);
-    },
-    [setError],
-  );
+  const handleExport = useCallback(async (): Promise<void> => {
+    const stampSet = state.stampSet;
+    const api = typeof window !== "undefined" ? window.api : undefined;
+    if (!stampSet || !api?.archive?.create) {
+      setError("ZIPエクスポートAPIを利用できません。");
+      return;
+    }
+
+    setIsExporting(true);
+    setExportMessage(null);
+    setError(null);
+    try {
+      const result = await api.archive.create(
+        toExportCreateRequest(
+          stampSet,
+          state.config?.outputDirectory ?? "",
+        ),
+      );
+      if (result) {
+        setExportMessage(
+          `${result.fileName} を保存しました（スタンプ画像 ${result.imageCount}枚）。`,
+        );
+      }
+    } catch (err) {
+      setError(toJapaneseError(err, "ZIPエクスポートに失敗しました。"));
+    } finally {
+      setIsExporting(false);
+    }
+  }, [setError, state.config?.outputDirectory, state.stampSet]);
 
   const handleStartUpload = useCallback((): void => {
     if (!state.stampSet) {
@@ -733,6 +763,8 @@ const AppInner: React.FC = () => {
               onReplaceImage={handleReplaceImage}
               onRetryImage={handleRetryImage}
               onExport={handleExport}
+              isExporting={isExporting}
+              exportMessage={exportMessage}
               onUpload={handleStartUpload}
             />
           )}

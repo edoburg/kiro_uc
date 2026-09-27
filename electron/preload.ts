@@ -8,6 +8,8 @@ import type {
 import type {
   CredentialSaveResponse,
   CredentialStatusResponse,
+  ExportCreateRequest,
+  ExportResult,
   GenerationStreamPayload,
   LogQueryParams,
   RendererApi,
@@ -95,6 +97,13 @@ const api = {
      */
     process: (sourcePath: string): Promise<ProcessedImageSet> =>
       ipcRenderer.invoke("image:process", sourcePath),
+  },
+
+  // --- ZIP Export ---
+  archive: {
+    /** 保存先をネイティブダイアログで選択し、ZIPを生成する。キャンセル時はnull。 */
+    create: (request: ExportCreateRequest): Promise<ExportResult | null> =>
+      ipcRenderer.invoke("archive:create", request),
   },
 
   // --- Upload ---

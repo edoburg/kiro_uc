@@ -11,6 +11,7 @@ ImageGeneratorService / UploaderService）を 1 回だけインスタンス化�
 エンドポイント一覧:
   - POST /generate        AI 画像生成（SSE ストリームで進捗配信）
   - POST /process         LINE 規格変換
+  - POST /export          変換済みスタンプセットのZIPエクスポート
   - POST /upload          LINE Creators Market アップロード（SSE ストリームで進捗配信）
   - GET  /config          Config の読み取り
   - POST /config          Config の保存
@@ -41,12 +42,15 @@ from pydantic import BaseModel
 
 from backend.models import (
     Config,
+    ExportImage,
+    ExportStampSet,
     GenerationRequest as GenerationRequestModel,
     LineCredentials,
     UploadProgress,
 )
 from backend.api_contracts import (
     ConfigPayload,
+    ExportRequestPayload,
     ProcessRequestPayload,
     UploadRequestPayload,
     UploadStampSetPayload,
@@ -62,6 +66,7 @@ from backend.services.image_generator_service import (
 )
 from backend.services.image_processor_service import ImageProcessorService
 from backend.services.log_service import LogLevel, LogService
+from backend.services.stamp_export_service import StampExportService
 from backend.services.uploader_service import UploaderService
 
 app = FastAPI(
@@ -87,6 +92,7 @@ app.add_middleware(
 config_service = ConfigService()
 log_service = LogService()
 image_processor_service = ImageProcessorService()
+stamp_export_service = StampExportService()
 uploader_service = UploaderService()
 
 # AI エンジン識別子 -> アダプタクラスのマッピング
@@ -399,6 +405,59 @@ async def process_image(request: ProcessRequest) -> dict:
             detail="画像の変換中に予期しないエラーが発生しました。",
         ) from exc
     return to_api_payload(processed)
+
+
+# ---------------------------------------------------------------------------
+# ZIPエクスポートエンドポイント
+# ---------------------------------------------------------------------------
+
+
+class ExportRequest(ExportRequestPayload):
+    """ZIPエクスポート要求（公開形式はcamelCase）。"""
+
+
+@app.post("/export")
+async def export_stamp_set(request: ExportRequest) -> dict:
+    """変換済みスタンプ画像一式をZIPへ保存する。"""
+    stamp_set = ExportStampSet(
+        title=request.stamp_set.title,
+        description=request.stamp_set.description,
+        images=[
+            ExportImage(
+                stamp_path=image.stamp_path,
+                main_image_path=image.main_image_path,
+                thumbnail_path=image.thumbnail_path,
+            )
+            for image in request.stamp_set.images
+        ],
+    )
+    try:
+        result = stamp_export_service.export(stamp_set, request.output_directory)
+    except ValueError as exc:
+        log_service.log(LogLevel.WARN, "main.export", str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        log_service.log(LogLevel.WARN, "main.export", str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OSError as exc:
+        log_service.log(LogLevel.ERROR, "main.export", str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail="ZIPファイルの保存に失敗しました。保存先を確認してください。",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        log_service.log(LogLevel.ERROR, "main.export", str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail="ZIPエクスポート中に予期しないエラーが発生しました。",
+        ) from exc
+
+    log_service.log(
+        LogLevel.INFO,
+        "main.export",
+        f"ZIPをエクスポートしました（images={result.image_count}）。",
+    )
+    return to_api_payload(result)
 
 
 # ---------------------------------------------------------------------------

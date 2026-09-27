@@ -63,6 +63,8 @@ function renderEditor(stampSet: StampSet) {
     onReplaceImage: vi.fn(),
     onRetryImage: vi.fn(),
     onExport: vi.fn(),
+    isExporting: false,
+    exportMessage: null,
     onUpload: vi.fn(),
   } satisfies Omit<StampSetEditorProps, "stampSet">;
 
@@ -196,22 +198,50 @@ describe("StampSetEditor - コールバック発火", () => {
     ).toBeDisabled();
   });
 
-  it("エクスポート時に window.prompt のパスで onExport が呼ばれる（要件 4.7, 4.8）", () => {
-    vi.spyOn(window, "prompt").mockReturnValue("/tmp/out");
+  it("エクスポート時に onExport が呼ばれる（要件 4.7, 4.8）", () => {
     const handlers = renderEditor(makeStampSet({ title: "有効なタイトル" }));
     fireEvent.click(
       screen.getByRole("button", { name: "エクスポート（ZIP保存）" }),
     );
-    expect(handlers.onExport).toHaveBeenCalledWith("/tmp/out");
+    expect(handlers.onExport).toHaveBeenCalledTimes(1);
   });
 
-  it("エクスポート先が未入力（prompt キャンセル）の場合 onExport は呼ばれない", () => {
-    vi.spyOn(window, "prompt").mockReturnValue(null);
-    const handlers = renderEditor(makeStampSet({ title: "有効なタイトル" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "エクスポート（ZIP保存）" }),
-    );
-    expect(handlers.onExport).not.toHaveBeenCalled();
+  it("ZIP作成中はボタンを無効化する", () => {
+    const stampSet = makeStampSet({ title: "有効なタイトル" });
+    const handlers = {
+      onTitleChange: vi.fn(),
+      onDescriptionChange: vi.fn(),
+      onReplaceImage: vi.fn(),
+      onRetryImage: vi.fn(),
+      onExport: vi.fn(),
+      isExporting: true,
+      exportMessage: null,
+      onUpload: vi.fn(),
+    } satisfies Omit<StampSetEditorProps, "stampSet">;
+    render(<StampSetEditor stampSet={stampSet} {...handlers} />);
+
+    expect(
+      screen.getByRole("button", { name: "ZIPを作成中…" }),
+    ).toBeDisabled();
+  });
+
+  it("ZIP保存完了メッセージを表示する", () => {
+    const stampSet = makeStampSet();
+    const handlers = {
+      onTitleChange: vi.fn(),
+      onDescriptionChange: vi.fn(),
+      onReplaceImage: vi.fn(),
+      onRetryImage: vi.fn(),
+      onExport: vi.fn(),
+      isExporting: false,
+      exportMessage: "サンプル.zip を保存しました。",
+      onUpload: vi.fn(),
+    } satisfies Omit<StampSetEditorProps, "stampSet">;
+    render(<StampSetEditor stampSet={stampSet} {...handlers} />);
+
+    expect(
+      screen.getByText("サンプル.zip を保存しました。"),
+    ).toHaveAttribute("role", "status");
   });
 });
 

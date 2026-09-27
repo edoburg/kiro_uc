@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { StampSet } from "../types/index";
-import { toUploadStartRequest } from "../utils/ipcMappers";
+import {
+  toExportCreateRequest,
+  toUploadStartRequest,
+} from "../utils/ipcMappers";
 
 function makeStampSet(): StampSet {
   return {
@@ -32,6 +35,27 @@ function makeStampSet(): StampSet {
 }
 
 describe("IPC契約mapper", () => {
+  it("StampSetをプレビュー情報を含まないZIPエクスポート要求へ変換する", () => {
+    const request = toExportCreateRequest(makeStampSet(), "C:/exports");
+
+    expect(request).toEqual({
+      stampSet: {
+        title: "テストセット",
+        description: "説明",
+        images: [
+          {
+            stampPath: "C:/tmp/stamp.png",
+            mainImagePath: "C:/tmp/main.png",
+            thumbnailPath: "C:/tmp/thumb.png",
+          },
+        ],
+      },
+      defaultDirectory: "C:/exports",
+    });
+    expect(JSON.stringify(request)).not.toContain("PreviewUrl");
+    expect(JSON.stringify(request)).not.toContain("validationResult");
+  });
+
   it("StampSetを余分なフィールドのないcamelCaseアップロード要求へ変換する", () => {
     const request = toUploadStartRequest(makeStampSet());
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 
@@ -117,6 +118,46 @@ def test_process_response_is_camel_case(monkeypatch, tmp_path: Path) -> None:
             "details": "適合",
         },
     }
+
+
+def test_export_request_and_response_are_camel_case(monkeypatch, tmp_path: Path) -> None:
+    client = _isolated_client(monkeypatch, tmp_path)
+    stamp = tmp_path / "stamp.png"
+    main = tmp_path / "main.png"
+    thumb = tmp_path / "thumb.png"
+    for path in (stamp, main, thumb):
+        path.write_bytes(b"png")
+
+    response = client.post(
+        "/export",
+        json={
+            "stampSet": {
+                "title": "APIテスト",
+                "description": "説明",
+                "images": [
+                    {
+                        "stampPath": str(stamp),
+                        "mainImagePath": str(main),
+                        "thumbnailPath": str(thumb),
+                    }
+                ],
+            },
+            "outputDirectory": str(tmp_path / "exports"),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["fileName"] == "APIテスト.zip"
+    assert payload["imageCount"] == 1
+    assert "zip_path" not in payload
+    with ZipFile(payload["zipPath"]) as archive:
+        assert set(archive.namelist()) == {
+            "01.png",
+            "main.png",
+            "tab.png",
+            "metadata.json",
+        }
 
 
 def test_stream_and_upload_contracts_are_camel_case() -> None:

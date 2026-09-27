@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, WebContents } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  IpcMainInvokeEvent,
+  OpenDialogOptions,
+  WebContents,
+} from "electron";
 import { spawn, ChildProcess } from "child_process";
 import * as path from "path";
 import * as http from "http";
@@ -8,6 +16,9 @@ import type {
   ProcessedImageSet,
 } from "../src/types/index";
 import type {
+  ExportBackendRequest,
+  ExportCreateRequest,
+  ExportResult,
   StatusResponse,
   UploadStartRequest,
 } from "../src/types/ipc";
@@ -41,6 +52,7 @@ import type {
  *   "credential:save"     (key: string, value: string) -> { status, key }
  *   "credential:get"      (key: string) -> { key, configured: boolean }
  *   "image:process"       (sourcePath: string) -> ProcessedImageSet
+ *   "archive:create"      (request: ExportCreateRequest) -> ExportResult | null
  *   "logs:get"            (params) -> LogEntry[]
  *
  * ストリーミング型（SSE を購読し、進捗を webContents.send で push する）:
@@ -426,6 +438,38 @@ ipcMain.handle("credential:get", async (_event: IpcMainInvokeEvent, key: string)
 ipcMain.handle("image:process", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
   return proxyRequest<ProcessedImageSet>("POST", "/process", { sourcePath });
 });
+
+// --- ZIP export（ネイティブ保存先選択 + 同期レスポンス） ---
+
+ipcMain.handle(
+  "archive:create",
+  async (
+    event: IpcMainInvokeEvent,
+    request: ExportCreateRequest
+  ): Promise<ExportResult | null> => {
+    const options: OpenDialogOptions = {
+      title: "ZIPの保存先フォルダーを選択",
+      buttonLabel: "このフォルダーに保存",
+      properties: ["openDirectory", "createDirectory"],
+      ...(request.defaultDirectory.trim()
+        ? { defaultPath: request.defaultDirectory }
+        : {}),
+    };
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const selection = owner
+      ? await dialog.showOpenDialog(owner, options)
+      : await dialog.showOpenDialog(options);
+    if (selection.canceled || selection.filePaths.length === 0) {
+      return null;
+    }
+
+    const backendRequest: ExportBackendRequest = {
+      stampSet: request.stampSet,
+      outputDirectory: selection.filePaths[0],
+    };
+    return proxyRequest<ExportResult>("POST", "/export", backendRequest);
+  }
+);
 
 // --- Logs ---
 
