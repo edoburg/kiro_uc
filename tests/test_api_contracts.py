@@ -13,6 +13,7 @@ from backend.api_contracts import to_api_payload
 from backend.models import (
     GenerationProgress,
     ProcessedImageSet,
+    UploadProgress,
     UploadResult,
     ValidationResult,
 )
@@ -182,6 +183,8 @@ def test_stream_and_upload_contracts_are_camel_case() -> None:
             "stampSet": {
                 "title": "test",
                 "description": "",
+                "creatorName": "Test Creator",
+                "copyright": "© Test Creator",
                 "images": [
                     {
                         "stampPath": "C:/tmp/stamp.png",
@@ -197,6 +200,9 @@ def test_stream_and_upload_contracts_are_camel_case() -> None:
         }
     )
     assert request.stamp_set.images[0].stamp_path == "C:/tmp/stamp.png"
+    assert request.stamp_set.creator_name == "Test Creator"
+    assert request.email_credential_key == "line_email"
+    assert request.password_credential_key == "line_password"
 
     result = to_api_payload(
         UploadResult(
@@ -216,3 +222,88 @@ def test_stream_and_upload_contracts_are_camel_case() -> None:
         "retryCount": 0,
         "errorMessage": "認証に失敗しました。",
     }
+
+
+def test_upload_endpoint_reaches_service_and_streams_camel_case(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """camelCase要求をサービスへ渡し、進捗と結果もcamelCaseで配信する。"""
+    client = _isolated_client(monkeypatch, tmp_path)
+    credentials = {
+        "line_email": "placeholder@example.com",
+        "line_password": "placeholder-password",
+    }
+    monkeypatch.setattr(
+        main_module.config_service,
+        "get_credential",
+        lambda key: credentials.get(key),
+    )
+    captured: dict[str, object] = {}
+
+    class FakeUploader:
+        async def upload(self, stamp_set, line_credentials, on_progress):
+            captured["stamp_set"] = stamp_set
+            captured["email"] = line_credentials.email
+            on_progress(
+                UploadProgress(
+                    phase="saving",
+                    completed=8,
+                    total=8,
+                    message="下書きを保存しています。",
+                )
+            )
+            return UploadResult(
+                success=True,
+                application_id="12345",
+                status="draft",
+                error_type=None,
+                retry_count=0,
+                error_message=None,
+            )
+
+    monkeypatch.setattr(main_module, "uploader_service", FakeUploader())
+    image = {
+        "stampPath": "C:/tmp/stamp.png",
+        "mainImagePath": "C:/tmp/main.png",
+        "thumbnailPath": "C:/tmp/thumb.png",
+    }
+    response = client.post(
+        "/upload",
+        json={
+            "stampSet": {
+                "title": "test",
+                "description": "description",
+                "creatorName": "Test Creator",
+                "copyright": "© Test Creator",
+                "images": [image] * 8,
+                "mainImagePath": "C:/tmp/main.png",
+                "thumbnailPath": "C:/tmp/thumb.png",
+            },
+            "emailCredentialKey": "line_email",
+            "passwordCredentialKey": "line_password",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["email"] == "placeholder@example.com"
+    assert captured["stamp_set"].creator_name == "Test Creator"
+    assert '"phase": "saving"' in response.text
+    assert '"applicationId": "12345"' in response.text
+    assert '"status": "draft"' in response.text
+    assert "placeholder-password" not in response.text
+
+
+def test_credential_status_never_returns_secret(monkeypatch, tmp_path: Path) -> None:
+    """認証情報の確認APIは設定有無だけを返し、値を返さない。"""
+    client = _isolated_client(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        main_module.config_service,
+        "get_credential",
+        lambda key: "placeholder-secret" if key == "line_password" else None,
+    )
+
+    response = client.get("/config/credential/line_password")
+
+    assert response.status_code == 200
+    assert response.json() == {"key": "line_password", "configured": True}
+    assert "placeholder-secret" not in response.text

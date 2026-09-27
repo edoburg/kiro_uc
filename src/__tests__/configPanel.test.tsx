@@ -106,6 +106,59 @@ describe("ConfigPanel", () => {
       expect(props.onSaveCredential).not.toHaveBeenCalled();
     });
 
+    it("LINEメールアドレスとパスワードを別々のキーチェーンキーへ保存する", async () => {
+      const props = makeProps();
+      render(<ConfigPanel {...props} />);
+
+      fireEvent.change(screen.getByLabelText("LINEメールアドレス"), {
+        target: { value: "creator@example.com" },
+      });
+      fireEvent.change(screen.getByLabelText("LINEパスワード"), {
+        target: { value: "dummy-line-password" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "設定を保存" }));
+
+      await waitFor(() => {
+        expect(props.onSaveCredential).toHaveBeenCalledTimes(2);
+      });
+      expect(props.onSaveCredential).toHaveBeenNthCalledWith(
+        1,
+        CREDENTIAL_KEYS.lineEmail,
+        "creator@example.com",
+      );
+      expect(props.onSaveCredential).toHaveBeenNthCalledWith(
+        2,
+        CREDENTIAL_KEYS.linePassword,
+        "dummy-line-password",
+      );
+      expect(JSON.stringify(vi.mocked(props.onSaveConfig).mock.calls)).not.toContain(
+        "dummy-line-password",
+      );
+    });
+
+    it("両方設定済みの場合だけLINE認証情報を設定済み表示にする", () => {
+      render(<ConfigPanel {...makeProps({ lineCredentialsConfigured: true })} />);
+
+      expect(screen.getByLabelText("LINEメールアドレス")).toHaveAttribute(
+        "placeholder",
+        "設定済み（変更する場合のみ入力）",
+      );
+      expect(screen.getByLabelText("LINEパスワード")).toHaveAttribute(
+        "placeholder",
+        "設定済み（変更する場合のみ入力）",
+      );
+    });
+
+    it("LINEアップロード保留中は認証情報入力欄を表示しない", () => {
+      render(<ConfigPanel {...makeProps({ lineUploadEnabled: false })} />);
+
+      expect(screen.queryByLabelText("LINEメールアドレス")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("LINEパスワード")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("LINE Creators Market 認証情報"),
+      ).not.toBeInTheDocument();
+    });
+
     it("出力ディレクトリが空のときは保存ボタンが無効化される（要件 6.1）", () => {
       const props = makeProps({
         config: { ...baseConfig, outputDirectory: "" },
@@ -267,7 +320,15 @@ describe("ConfigPanel", () => {
 
   describe("validateImportedConfig（純粋関数）", () => {
     it("認証情報フィールドを含むデータを拒否する（要件 6.5, 6.6）", () => {
-      const sensitiveFields = ["api_key", "apiKey", "password", "token", "secret"];
+      const sensitiveFields = [
+        "api_key",
+        "apiKey",
+        "password",
+        "token",
+        "secret",
+        "line_email",
+        "linePassword",
+      ];
       for (const field of sensitiveFields) {
         const data = {
           aiEngine: "openai",

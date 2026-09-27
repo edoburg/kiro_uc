@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState } from "react";
 import type { StampSet } from "../types/index";
 import {
+  validateCopyright,
+  validateCreatorName,
   validateDescription,
   validateFileType,
   validateTitle,
@@ -12,6 +14,7 @@ const MAX_TITLE_LENGTH = 40;
 
 /** 説明最大文字数（要件 4.3） */
 const MAX_DESCRIPTION_LENGTH = 160;
+const MAX_ATTRIBUTION_LENGTH = 50;
 
 /** 差し替えで受け付ける MIME タイプ（要件 4.4, 4.5） */
 const PNG_MIME_TYPE = "image/png";
@@ -33,6 +36,10 @@ export interface StampSetEditorProps {
   onTitleChange: (title: string) => void;
   /** 説明変更時に呼ばれる（要件 4.3） */
   onDescriptionChange: (description: string) => void;
+  /** クリエイター名変更時に呼ばれる */
+  onCreatorNameChange: (creatorName: string) => void;
+  /** コピーライト変更時に呼ばれる */
+  onCopyrightChange: (copyright: string) => void;
   /** 個別スタンプ画像の差し替え（PNG のみ、要件 4.4, 4.6） */
   onReplaceImage: (index: number, file: File) => void;
   /** 変換失敗した画像を同じ変換元から再処理する */
@@ -45,6 +52,8 @@ export interface StampSetEditorProps {
   exportMessage: string | null;
   /** アップロード開始（要件 5.1, 5.6） */
   onUpload: () => void;
+  /** LINEアップロード用のメタデータと操作を表示するか */
+  lineUploadEnabled?: boolean;
 }
 
 /**
@@ -66,12 +75,15 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
   stampSet,
   onTitleChange,
   onDescriptionChange,
+  onCreatorNameChange,
+  onCopyrightChange,
   onReplaceImage,
   onRetryImage,
   onExport,
   isExporting,
   exportMessage,
   onUpload,
+  lineUploadEnabled = true,
 }) => {
   // 差し替え対象の隠しファイル入力を画像ごとに参照する
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
@@ -89,11 +101,37 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
     () => validateDescription(stampSet.description),
     [stampSet.description],
   );
+  const creatorNameError = useMemo(
+    () => validateCreatorName(stampSet.creatorName),
+    [stampSet.creatorName],
+  );
+  const copyrightError = useMemo(
+    () => validateCopyright(stampSet.copyright),
+    [stampSet.copyright],
+  );
 
   const setValidation = useMemo(
     () => validateStampSet(stampSet),
     [stampSet],
   );
+  const visibleIssues = useMemo(() => {
+    if (lineUploadEnabled) {
+      return setValidation.issues;
+    }
+    const uploadOnlyMessages = new Set(
+      [creatorNameError?.message, copyrightError?.message].filter(
+        (message): message is string => Boolean(message),
+      ),
+    );
+    return setValidation.issues.filter(
+      (issue) => !uploadOnlyMessages.has(issue),
+    );
+  }, [
+    copyrightError,
+    creatorNameError,
+    lineUploadEnabled,
+    setValidation.issues,
+  ]);
   const isExportDisabled = !setValidation.canExport;
 
   const handleReplaceClick = (index: number): void => {
@@ -206,13 +244,68 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
             </p>
           )}
         </div>
+
+        {lineUploadEnabled && (
+          <div className="stamp-set-editor__field">
+          <label htmlFor="stamp-set-creator-name">
+            クリエイター名（1〜50文字）
+          </label>
+          <input
+            id="stamp-set-creator-name"
+            name="creatorName"
+            type="text"
+            value={stampSet.creatorName}
+            onChange={(event) => onCreatorNameChange(event.target.value)}
+            aria-invalid={creatorNameError !== null}
+          />
+          <div
+            className={`stamp-set-editor__char-count${
+              creatorNameError ? " is-invalid" : ""
+            }`}
+          >
+            {stampSet.creatorName.length} / {MAX_ATTRIBUTION_LENGTH} 文字
+          </div>
+          {creatorNameError && (
+            <p className="stamp-set-editor__error" role="alert">
+              {creatorNameError.message}
+            </p>
+          )}
+          </div>
+        )}
+
+        {lineUploadEnabled && (
+          <div className="stamp-set-editor__field">
+          <label htmlFor="stamp-set-copyright">コピーライト（1〜50文字）</label>
+          <input
+            id="stamp-set-copyright"
+            name="copyright"
+            type="text"
+            value={stampSet.copyright}
+            onChange={(event) => onCopyrightChange(event.target.value)}
+            aria-invalid={copyrightError !== null}
+            placeholder="例: © 2026 Creator Name"
+          />
+          <div
+            className={`stamp-set-editor__char-count${
+              copyrightError ? " is-invalid" : ""
+            }`}
+          >
+            {stampSet.copyright.length} / {MAX_ATTRIBUTION_LENGTH} 文字
+          </div>
+          {copyrightError && (
+            <p className="stamp-set-editor__error" role="alert">
+              {copyrightError.message}
+            </p>
+          )}
+          </div>
+        )}
       </div>
 
-      {setValidation.issues.length > 0 && (
+      {visibleIssues.length > 0 && (
         <div className="stamp-set-editor__set-validation" role="status">
           <h3>確認が必要な項目</h3>
           <ul>
-            {setValidation.issues.map((issue) => (
+            {visibleIssues.map((issue) => (
               <li key={issue}>{issue}</li>
             ))}
           </ul>
@@ -315,14 +408,16 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
         >
           {isExporting ? "ZIPを作成中…" : "エクスポート（ZIP保存）"}
         </button>
-        <button
-          type="button"
-          className="stamp-set-editor__upload-button"
-          onClick={onUpload}
-          disabled={!setValidation.isValidForUpload}
-        >
-          LINE Creators Market へアップロード
-        </button>
+        {lineUploadEnabled && (
+          <button
+            type="button"
+            className="stamp-set-editor__upload-button"
+            onClick={onUpload}
+            disabled={!setValidation.isValidForUpload}
+          >
+            LINE Creators Market へアップロード
+          </button>
+        )}
       </div>
       {exportMessage && (
         <p className="stamp-set-editor__export-message" role="status">

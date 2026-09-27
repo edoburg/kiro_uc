@@ -198,7 +198,7 @@ class UploadProgress:
     """
 
     phase: str
-    """現在のフェーズ ('login' | 'uploading' | 'submitting' | 'done' | 'retrying')"""
+    """現在のフェーズ ('login' | 'uploading' | 'saving' | 'submitting' | 'done' | 'retrying')"""
 
     completed: int
     """完了したステップ数（またはアップロード済み画像枚数）"""

@@ -1,8 +1,8 @@
 ﻿"""
 UploaderService — Playwright による LINE Creators Market への自動アップロード
 
-LINE Creators Market には公開 API が存在しないため、Playwright のヘッドレス
-ブラウザ自動化で Stamp_Set をアップロードする（design.md）。
+LINE Creators Market には公開 API が存在しないため、Playwright のブラウザ
+自動化で Stamp_Set をアップロードする（design.md）。
 
 主な方針:
   - ネットワークエラー（接続断・タイムアウト・サーバーエラー）は 5 秒間隔で
@@ -20,21 +20,23 @@ structure.md の規約に従い、本サービスはステートレスとする�
 
 Playwright はブラウザバイナリが未インストールでもモジュールが import できるよう、
 実行時（upload 呼び出し時）に遅延 import する。テストでは _new_browser_page /
-_login / _upload_images / _submit_for_review をモックに差し替えることで、実
-ブラウザや実 LINE エンドポイントへアクセスせずに検証できる。
+_login / _open_sticker_draft / _upload_images / _save_draft をモックに差し替えることで、
+実ブラウザや実 LINE エンドポイントへアクセスせずに検証できる。
 """
 
 from __future__ import annotations
 
 import asyncio
+import re
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Callable, Optional
 
 from backend.models import LineCredentials, UploadProgress, UploadResult
 
-# LINE Creators Market の申請フォーム URL（自動化対象）。
-LCM_LOGIN_URL = "https://account.line.biz/login"
-LCM_UPLOAD_URL = "https://creator.line.me/ja/stickershop/products"
+# LINE Creators Market の公式ログイン導線とマイページ。
+# ログイン導線は access.line.me のOAuth画面へリダイレクトされる。
+LCM_LOGIN_URL = "https://creator.line.me/signup/line_auth"
+LCM_MANAGEMENT_URL = "https://creator.line.me/my/"
 
 # ネットワークエラー時の自動リトライ設定（Requirements 5.4）。
 MAX_RETRIES = 3
@@ -96,9 +98,13 @@ class UploaderService:
     ステートレスなサービス（structure.md）。
 
     公開エントリポイントは upload()。内部で Playwright のページを起動し、
-    ログイン → 画像アップロード → 申請送信の順に処理する。ネットワークエラーは
-    自動リトライ、認証エラーは即時停止する。
+    ログイン → 下書き作成 → 画像アップロード → 下書き保存の順に処理する。
+    審査申請は明示的に有効化しない限り実行しない。
     """
+
+    def __init__(self, *, headless: bool = False, submit_for_review: bool = False) -> None:
+        self._headless = headless
+        self._submit_for_review_enabled = submit_for_review
 
     # ------------------------------------------------------------------
     # 公開エントリポイント
@@ -137,12 +143,16 @@ class UploaderService:
                 return await self._attempt_upload(
                     stamp_set, credentials, on_progress, retry_count, total
                 )
-            except UploadAuthError:
+            except UploadAuthError as exc:
                 # 認証エラー: リトライせず即時停止（Requirements 5.7）
-                return self._failure_result(ERROR_AUTH, retry_count=0)
-            except UploadValidationError:
+                return self._failure_result(ERROR_AUTH, retry_count=0, message=str(exc))
+            except UploadValidationError as exc:
                 # 規格エラー: リトライ不可
-                return self._failure_result(ERROR_VALIDATION, retry_count=retry_count)
+                return self._failure_result(
+                    ERROR_VALIDATION,
+                    retry_count=retry_count,
+                    message=str(exc),
+                )
             except UploadNetworkError:
                 # ネットワークエラー: 5 秒間隔で最大 3 回リトライ（Requirements 5.4）
                 if retry_count >= MAX_RETRIES:
@@ -178,62 +188,92 @@ class UploaderService:
         total: int,
     ) -> UploadResult:
         """
-        ブラウザページを 1 つ起動し、ログイン → 画像アップロード → 申請送信を実行する。
+        ブラウザページを 1 つ起動し、ログイン → 画像アップロード → 下書き保存を実行する。
 
         ネットワークエラー・認証エラーは例外として送出し、呼び出し側 upload() が
         リトライ／即時停止を判断する。
         """
-        async with self._new_browser_page() as page:
-            self._notify(
-                on_progress,
-                UploadProgress(
-                    phase="login",
-                    completed=0,
-                    total=total,
-                    message="LINE Creators Market にログインしています…",
-                ),
-            )
-            await self._login(page, credentials)
+        try:
+            async with self._new_browser_page() as page:
+                self._notify(
+                    on_progress,
+                    UploadProgress(
+                        phase="login",
+                        completed=0,
+                        total=total,
+                        message="LINE Creators Market にログインしています…",
+                    ),
+                )
+                await self._login(page, credentials)
 
-            self._notify(
-                on_progress,
-                UploadProgress(
-                    phase="uploading",
-                    completed=0,
-                    total=total,
-                    message="スタンプ画像をアップロードしています…",
-                ),
-            )
-            await self._upload_images(page, stamp_set, on_progress)
+                await self._open_sticker_draft(page, stamp_set)
 
-            self._notify(
-                on_progress,
-                UploadProgress(
-                    phase="submitting",
-                    completed=total,
-                    total=total,
-                    message="審査申請を送信しています…",
-                ),
-            )
-            application_id = await self._submit_for_review(page)
+                self._notify(
+                    on_progress,
+                    UploadProgress(
+                        phase="uploading",
+                        completed=0,
+                        total=total,
+                        message="スタンプ画像をアップロードしています…",
+                    ),
+                )
+                await self._upload_images(page, stamp_set, on_progress)
 
-            self._notify(
-                on_progress,
-                UploadProgress(
-                    phase="done",
-                    completed=total,
-                    total=total,
-                    message="アップロードが完了しました。",
-                ),
-            )
-            return UploadResult(
-                success=True,
-                application_id=application_id,
-                status="submitted",
-                error_type=None,
-                retry_count=retry_count,
-                error_message=None,
-            )
+                self._notify(
+                    on_progress,
+                    UploadProgress(
+                        phase="saving",
+                        completed=total,
+                        total=total,
+                        message="LINE Creators Market に下書きを保存しています…",
+                    ),
+                )
+                application_id = await self._save_draft(page)
+
+                if self._submit_for_review_enabled:
+                    self._notify(
+                        on_progress,
+                        UploadProgress(
+                            phase="submitting",
+                            completed=total,
+                            total=total,
+                            message="審査申請を送信しています…",
+                        ),
+                    )
+                    application_id = await self._submit_for_review(page)
+
+                self._notify(
+                    on_progress,
+                    UploadProgress(
+                        phase="done",
+                        completed=total,
+                        total=total,
+                        message=(
+                            "審査申請が完了しました。"
+                            if self._submit_for_review_enabled
+                            else "下書き保存が完了しました。"
+                        ),
+                    ),
+                )
+                return UploadResult(
+                    success=True,
+                    application_id=application_id,
+                    status="submitted" if self._submit_for_review_enabled else "draft",
+                    error_type=None,
+                    retry_count=retry_count,
+                    error_message=None,
+                )
+        except (UploadAuthError, UploadNetworkError, UploadValidationError):
+            raise
+        except Exception as exc:  # Playwright の通信・タイムアウト例外を分類する
+            error_name = type(exc).__name__.lower()
+            error_text = str(exc).lower()
+            if any(
+                marker in error_name or marker in error_text
+                for marker in ("timeout", "network", "connection", "net::")
+            ):
+                raise UploadNetworkError("LINE Creators Marketとの通信に失敗しました。") from exc
+            raise
 
     # ------------------------------------------------------------------
     # Playwright ブラウザページの生成（テストではモックに差し替える）
@@ -242,7 +282,7 @@ class UploaderService:
     @asynccontextmanager
     async def _new_browser_page(self) -> AsyncIterator[Any]:
         """
-        Playwright のヘッドレスブラウザを起動し、新規ページを yield する。
+        Playwright のブラウザを起動し、新規ページを yield する。
 
         Playwright はブラウザバイナリ未インストールでもモジュール import が
         失敗しないよう、ここで遅延 import する。テストではこのコンテキスト
@@ -259,7 +299,7 @@ class UploaderService:
             ) from exc
 
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
+            browser = await pw.chromium.launch(headless=self._headless)
             try:
                 page = await browser.new_page()
                 yield page
@@ -295,9 +335,81 @@ class UploaderService:
         await page.fill('input[name="tpasswd"]', credentials.password)
         await page.click('button[type="submit"]')
 
+        # 通常ログインの遷移を待つ。追加認証が必要な場合は可視ブラウザ上で
+        # ユーザーが完了できるよう、最大2分間だけ待機する。
+        await page.wait_for_timeout(500)
+
         # ログイン後に認証エラー表示があれば認証エラーとして扱う
         if await self._has_auth_error(page):
             raise UploadAuthError("認証に失敗しました。")
+
+        if "access.line.me" in page.url:
+            body_text = await page.locator("body").inner_text()
+            requires_manual_auth = any(
+                keyword in body_text
+                for keyword in ("認証番号", "本人確認", "CAPTCHA", "ロボット")
+            )
+            if requires_manual_auth:
+                try:
+                    await page.wait_for_url(
+                        re.compile(r"^https://creator\.line\.me/(?!signup/line_auth)"),
+                        timeout=120_000,
+                    )
+                except Exception as exc:
+                    raise UploadAuthError(
+                        "LINE側の追加認証が完了しませんでした。開いたブラウザで認証を完了して再試行してください。"
+                    ) from exc
+            else:
+                raise UploadAuthError(
+                    "LINEへのログインを完了できませんでした。認証情報を確認してください。"
+                )
+
+    async def _open_sticker_draft(self, page: Any, stamp_set: Any) -> None:
+        """新規スタンプ登録画面を開き、表示情報を入力して下書きを作成する。"""
+        await page.goto(LCM_MANAGEMENT_URL)
+        await self._click_first(
+            page,
+            (
+                'a:has-text("新規登録")',
+                'button:has-text("新規登録")',
+                'a:has-text("New Submission")',
+            ),
+            "LINE Creators Marketの新規登録ボタンが見つかりません。画面仕様が変更された可能性があります。",
+        )
+        await self._click_first(
+            page,
+            ('a:has-text("スタンプ")', 'button:has-text("スタンプ")', 'a:has-text("Sticker")'),
+            "スタンプ登録画面を開けませんでした。",
+        )
+        await self._fill_first(
+            page,
+            ('input[name*="title"]', 'input[name*="product_name"]'),
+            getattr(stamp_set, "title", ""),
+            "タイトル入力欄が見つかりません。",
+        )
+        await self._fill_first(
+            page,
+            ('textarea[name*="description"]', 'textarea[name*="detail"]'),
+            getattr(stamp_set, "description", ""),
+            "説明入力欄が見つかりません。",
+        )
+        await self._fill_first(
+            page,
+            ('input[name*="creator"]', 'input[name*="author"]'),
+            getattr(stamp_set, "creator_name", ""),
+            "クリエイター名入力欄が見つかりません。",
+        )
+        await self._fill_first(
+            page,
+            ('input[name*="copyright"]',),
+            getattr(stamp_set, "copyright", ""),
+            "コピーライト入力欄が見つかりません。",
+        )
+        await self._click_first(
+            page,
+            ('button:has-text("保存")', 'button:has-text("Save")'),
+            "下書き保存ボタンが見つかりません。",
+        )
 
     async def _upload_images(
         self,
@@ -323,31 +435,70 @@ class UploaderService:
         images = getattr(stamp_set, "images", None) or []
         total = len(images)
 
-        await page.goto(LCM_UPLOAD_URL)
+        await self._click_first(
+            page,
+            (
+                'a:has-text("スタンプ画像")',
+                'button:has-text("スタンプ画像")',
+                'a:has-text("Sticker Images")',
+            ),
+            "スタンプ画像登録画面を開けませんでした。",
+        )
 
-        for index, image in enumerate(images):
-            stamp_path = getattr(image, "stamp_path", None)
-            if stamp_path:
-                await page.set_input_files('input[type="file"]', stamp_path)
+        stamp_paths = [getattr(image, "stamp_path", "") for image in images]
+        if not stamp_paths or any(not path for path in stamp_paths):
+            raise UploadValidationError("アップロード可能なスタンプ画像が揃っていません。")
 
-            if on_progress is not None:
-                self._notify(
-                    on_progress,
-                    UploadProgress(
-                        phase="uploading",
-                        completed=index + 1,
-                        total=total,
-                        message=f"スタンプ画像をアップロードしています…（{index + 1}/{total}）",
-                    ),
-                )
+        await self._set_files_first(
+            page,
+            ('input[type="file"][multiple]', 'input[type="file"][name*="sticker"]'),
+            stamp_paths,
+            "スタンプ画像のアップロード欄が見つかりません。",
+        )
+
+        # LINE側は複数ファイルを一括選択するため、選択完了後に各画像分の進捗を通知する。
+        for index in range(total):
+            self._notify(
+                on_progress,
+                UploadProgress(
+                    phase="uploading",
+                    completed=index + 1,
+                    total=total,
+                    message=f"スタンプ画像をアップロードしています…（{index + 1}/{total}）",
+                ),
+            )
 
         # メイン画像・サムネイル画像のアップロード
         main_path = getattr(stamp_set, "main_image_path", None)
         thumb_path = getattr(stamp_set, "thumbnail_path", None)
-        if main_path:
-            await page.set_input_files('input[name="main"]', main_path)
-        if thumb_path:
-            await page.set_input_files('input[name="thumbnail"]', thumb_path)
+        if not main_path or not thumb_path:
+            raise UploadValidationError("メイン画像またはトークルームタブ画像がありません。")
+        await self._set_files_first(
+            page,
+            ('input[type="file"][name="main"]', 'input[type="file"][name*="main"]'),
+            main_path,
+            "メイン画像のアップロード欄が見つかりません。",
+        )
+        await self._set_files_first(
+            page,
+            (
+                'input[type="file"][name="thumbnail"]',
+                'input[type="file"][name="tab"]',
+                'input[type="file"][name*="tab"]',
+            ),
+            thumb_path,
+            "トークルームタブ画像のアップロード欄が見つかりません。",
+        )
+
+    async def _save_draft(self, page: Any) -> str:
+        """画像登録内容を下書き保存し、URL等から管理IDを取得する。"""
+        await self._click_first(
+            page,
+            ('button:has-text("保存")', 'button:has-text("Save")'),
+            "画像の保存ボタンが見つかりません。",
+        )
+        match = re.search(r"/(?:product|stickers?)/(\d+)", page.url)
+        return match.group(1) if match else ""
 
     async def _submit_for_review(self, page: Any) -> str:
         """
@@ -380,8 +531,59 @@ class UploaderService:
         テストではモックに差し替える。実ページでは認証エラー用の要素の有無を
         確認する。
         """
-        error_element = await page.query_selector('[data-testid="login-error"]')
-        return error_element is not None
+        selectors = (
+            '[data-testid="login-error"]',
+            '.MdTxtError',
+            '[role="alert"]',
+        )
+        for selector in selectors:
+            locator = page.locator(selector).first
+            if await locator.count() > 0 and await locator.is_visible():
+                return True
+        return False
+
+    @staticmethod
+    async def _click_first(
+        page: Any,
+        selectors: tuple[str, ...],
+        error_message: str,
+    ) -> None:
+        for selector in selectors:
+            locator = page.locator(selector).first
+            if await locator.count() > 0 and await locator.is_visible():
+                await locator.click()
+                return
+        raise UploadValidationError(error_message)
+
+    @staticmethod
+    async def _fill_first(
+        page: Any,
+        selectors: tuple[str, ...],
+        value: str,
+        error_message: str,
+    ) -> None:
+        if not value:
+            raise UploadValidationError(error_message)
+        for selector in selectors:
+            locator = page.locator(selector).first
+            if await locator.count() > 0 and await locator.is_visible():
+                await locator.fill(value)
+                return
+        raise UploadValidationError(error_message)
+
+    @staticmethod
+    async def _set_files_first(
+        page: Any,
+        selectors: tuple[str, ...],
+        files: str | list[str],
+        error_message: str,
+    ) -> None:
+        for selector in selectors:
+            locator = page.locator(selector).first
+            if await locator.count() > 0:
+                await locator.set_input_files(files)
+                return
+        raise UploadValidationError(error_message)
 
     @staticmethod
     def _notify(
@@ -402,15 +604,19 @@ class UploaderService:
             pass
 
     @staticmethod
-    def _failure_result(error_type: str, retry_count: int) -> UploadResult:
+    def _failure_result(
+        error_type: str,
+        retry_count: int,
+        message: str | None = None,
+    ) -> UploadResult:
         """エラー種別に応じた日本語メッセージ付きの失敗 UploadResult を生成する。"""
         template = _ERROR_MESSAGES.get(error_type, _ERROR_MESSAGES[ERROR_UNKNOWN])
-        message = template.format(retry_count=retry_count)
+        safe_message = message or template.format(retry_count=retry_count)
         return UploadResult(
             success=False,
             application_id=None,
             status=None,
             error_type=error_type,
             retry_count=retry_count,
-            error_message=message,
+            error_message=safe_message,
         )

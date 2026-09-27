@@ -8,7 +8,7 @@ Python のサービス層・永続化層は snake_case を使用する。変換�
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -73,13 +73,15 @@ class ExportRequestPayload(ApiModel):
 
 class UploadImagePayload(ApiModel):
     stamp_path: str
-    main_image_path: str = ""
-    thumbnail_path: str = ""
+    main_image_path: str
+    thumbnail_path: str
 
 
 class UploadStampSetPayload(ApiModel):
     title: str
     description: str = ""
+    creator_name: str
+    copyright: str
     images: list[UploadImagePayload]
     main_image_path: str | None = None
     thumbnail_path: str | None = None
@@ -87,5 +89,5 @@ class UploadStampSetPayload(ApiModel):
 
 class UploadRequestPayload(ApiModel):
     stamp_set: UploadStampSetPayload
-    email_credential_key: str = "line_email"
-    password_credential_key: str = "line_password"
+    email_credential_key: Literal["line_email"] = "line_email"
+    password_credential_key: Literal["line_password"] = "line_password"

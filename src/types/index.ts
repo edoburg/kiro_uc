@@ -91,6 +91,10 @@ export interface StampSet {
   title: string;
   /** スタンプセット説明（0〜160 文字） */
   description: string;
+  /** LINE STOREに表示するクリエイター名（1〜50文字） */
+  creatorName: string;
+  /** 権利表記（1〜50文字） */
+  copyright: string;
   /** スタンプ画像一覧 */
   images: StampImage[];
   /** LINE 規格バリデーション全通過フラグ（アップロードボタン活性制御に使用） */
@@ -114,7 +118,7 @@ export interface ProcessedImageSet {
 export interface UploadResult {
   /** アップロード成功フラグ */
   success: boolean;
-  /** LINE から返された申請 ID */
+  /** LINE から返された下書き管理 ID または申請 ID */
   applicationId?: string;
   /** アップロードステータス文字列 */
   status?: string;

@@ -100,6 +100,8 @@ export type AppAction =
   | { type: "STAMP_IMAGE_PROCESS_FAILED"; index: number; message: string }
   | { type: "UPDATE_STAMP_SET_TITLE"; title: string }
   | { type: "UPDATE_STAMP_SET_DESCRIPTION"; description: string }
+  | { type: "UPDATE_STAMP_SET_CREATOR_NAME"; creatorName: string }
+  | { type: "UPDATE_STAMP_SET_COPYRIGHT"; copyright: string }
   | { type: "START_UPLOAD" }
   | { type: "SET_UPLOAD_PROGRESS"; progress: UploadProgress | null }
   | { type: "SET_UPLOAD_RESULT"; result: UploadResult }
@@ -285,6 +287,28 @@ export function appReducer(state: AppState, action: AppAction): AppState {
             stampSet: recalculateStampSet({
               ...state.stampSet,
               description: action.description,
+            }),
+          }
+        : state;
+
+    case "UPDATE_STAMP_SET_CREATOR_NAME":
+      return state.stampSet
+        ? {
+            ...state,
+            stampSet: recalculateStampSet({
+              ...state.stampSet,
+              creatorName: action.creatorName,
+            }),
+          }
+        : state;
+
+    case "UPDATE_STAMP_SET_COPYRIGHT":
+      return state.stampSet
+        ? {
+            ...state,
+            stampSet: recalculateStampSet({
+              ...state.stampSet,
+              copyright: action.copyright,
             }),
           }
         : state;

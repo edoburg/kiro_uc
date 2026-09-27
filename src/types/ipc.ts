@@ -75,7 +75,13 @@ export interface GenerationProgressPayload {
 }
 
 export interface UploadProgressPayload {
-  phase: "login" | "uploading" | "submitting" | "done" | "retrying";
+  phase:
+    | "login"
+    | "uploading"
+    | "saving"
+    | "submitting"
+    | "done"
+    | "retrying";
   completed: number;
   total: number;
   message: string;
@@ -91,6 +97,8 @@ export interface UploadStartRequest {
   stampSet: {
     title: string;
     description: string;
+    creatorName: string;
+    copyright: string;
     images: UploadImageRequest[];
     mainImagePath: string | null;
     thumbnailPath: string | null;

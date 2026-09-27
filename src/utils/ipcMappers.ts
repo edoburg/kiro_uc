@@ -1,5 +1,10 @@
-import type { StampSet } from "../types/index";
-import type { ExportCreateRequest, UploadStartRequest } from "../types/ipc";
+import type { StampSet, UploadResult } from "../types/index";
+import type {
+  ExportCreateRequest,
+  StreamErrorPayload,
+  UploadResultPayload,
+  UploadStartRequest,
+} from "../types/ipc";
 
 /** UIドメインのStampSetからZIPエクスポート要求を生成する。 */
 export function toExportCreateRequest(
@@ -38,6 +43,8 @@ export function toUploadStartRequest(stampSet: StampSet): UploadStartRequest {
     stampSet: {
       title: stampSet.title,
       description: stampSet.description,
+      creatorName: stampSet.creatorName,
+      copyright: stampSet.copyright,
       images: stampSet.images.map((image) => ({
         stampPath: image.stampPath,
         mainImagePath: image.mainImagePath,
@@ -48,5 +55,32 @@ export function toUploadStartRequest(stampSet: StampSet): UploadStartRequest {
     },
     emailCredentialKey: "line_email",
     passwordCredentialKey: "line_password",
+  };
+}
+
+/** SSEの完了ペイロードをUIドメインのUploadResultへ変換する。 */
+export function toUploadResult(payload: UploadResultPayload): UploadResult {
+  return {
+    success: payload.success,
+    retryCount: payload.retryCount,
+    ...(payload.applicationId ? { applicationId: payload.applicationId } : {}),
+    ...(payload.status ? { status: payload.status } : {}),
+    ...(payload.errorType ? { errorType: payload.errorType } : {}),
+    ...(payload.errorMessage ? { errorMessage: payload.errorMessage } : {}),
+  };
+}
+
+/** SSEの通信・認証エラーをUIドメインのUploadResultへ変換する。 */
+export function toUploadErrorResult(
+  payload: UploadResultPayload | StreamErrorPayload,
+): UploadResult {
+  if ("success" in payload) {
+    return toUploadResult(payload);
+  }
+  return {
+    success: false,
+    errorType: payload.errorType ?? "unknown",
+    retryCount: 0,
+    errorMessage: payload.message || "アップロードに失敗しました。",
   };
 }

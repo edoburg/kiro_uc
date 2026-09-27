@@ -86,6 +86,34 @@ export function validateDescription(description: string): ValidationError | null
   return null;
 }
 
+/** LINE STORE表示用クリエイター名（1〜50文字）を検証する。 */
+export function validateCreatorName(value: string): ValidationError | null {
+  if (value.trim().length === 0) {
+    return { field: "creatorName", message: "クリエイター名を入力してください" };
+  }
+  if (value.length > 50) {
+    return {
+      field: "creatorName",
+      message: `クリエイター名は50文字以内で入力してください（現在 ${value.length} 文字）`,
+    };
+  }
+  return null;
+}
+
+/** LINE STORE表示用コピーライト（1〜50文字）を検証する。 */
+export function validateCopyright(value: string): ValidationError | null {
+  if (value.trim().length === 0) {
+    return { field: "copyright", message: "コピーライトを入力してください" };
+  }
+  if (value.length > 50) {
+    return {
+      field: "copyright",
+      message: `コピーライトは50文字以内で入力してください（現在 ${value.length} 文字）`,
+    };
+  }
+  return null;
+}
+
 /**
  * ファイル種別をバリデーションする。
  * PNG 以外はエラー（大文字小文字を区別しない）。

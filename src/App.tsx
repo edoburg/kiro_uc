@@ -26,12 +26,15 @@ import {
 import type { LogEntry } from "./types/index";
 import {
   toExportCreateRequest,
+  toUploadErrorResult,
+  toUploadResult,
   toUploadStartRequest,
 } from "./utils/ipcMappers";
 import {
   buildStampSetFromGeneratedImages,
   toStampImage,
 } from "./utils/stampSet";
+import { LINE_CREATORS_UPLOAD_ENABLED } from "./config/features";
 
 /**
  * window.api が存在するときのみ callback を実行する小さなガード。
@@ -107,13 +110,18 @@ const AppInner: React.FC = () => {
         const lineEmail = api.credential?.get
           ? await api.credential.get(CREDENTIAL_KEYS.lineEmail)
           : null;
+        const linePassword = api.credential?.get
+          ? await api.credential.get(CREDENTIAL_KEYS.linePassword)
+          : null;
 
         if (cancelled) {
           return;
         }
 
         const aiConfigured = isCredentialConfigured(aiKey);
-        const lineConfigured = isCredentialConfigured(lineEmail);
+        const lineConfigured =
+          isCredentialConfigured(lineEmail) &&
+          isCredentialConfigured(linePassword);
         const configExists = config != null;
 
         if (config) {
@@ -329,6 +337,20 @@ const AppInner: React.FC = () => {
     [dispatch],
   );
 
+  const handleCreatorNameChange = useCallback(
+    (creatorName: string): void => {
+      dispatch({ type: "UPDATE_STAMP_SET_CREATOR_NAME", creatorName });
+    },
+    [dispatch],
+  );
+
+  const handleCopyrightChange = useCallback(
+    (copyright: string): void => {
+      dispatch({ type: "UPDATE_STAMP_SET_COPYRIGHT", copyright });
+    },
+    [dispatch],
+  );
+
   const processStampImageAt = useCallback(
     async (index: number, sourcePath: string, fallbackPreviewUrl = ""): Promise<void> => {
       const api = typeof window !== "undefined" ? window.api : undefined;
@@ -413,6 +435,10 @@ const AppInner: React.FC = () => {
   }, [setError, state.config?.outputDirectory, state.stampSet]);
 
   const handleStartUpload = useCallback((): void => {
+    if (!LINE_CREATORS_UPLOAD_ENABLED) {
+      setError("LINE Creators Marketへの自動アップロード機能は現在保留中です。");
+      return;
+    }
     if (!state.stampSet) {
       return;
     }
@@ -431,33 +457,16 @@ const AppInner: React.FC = () => {
     if (api?.onUploadProgress) {
       api.onUploadProgress((payload: UploadStreamPayload) => {
         if (payload.event === "error") {
-          const data = payload.data;
-          const isResult = "success" in data;
           dispatch({
             type: "SET_UPLOAD_RESULT",
-            result: {
-              success: false,
-              errorType: data.errorType ?? "unknown",
-              retryCount: isResult ? data.retryCount : 0,
-              errorMessage:
-                (isResult ? data.errorMessage : data.message) ??
-                "アップロードに失敗しました。",
-            },
+            result: toUploadErrorResult(payload.data),
           });
           return;
         }
         if (payload.event === "done") {
-          const data = payload.data;
           dispatch({
             type: "SET_UPLOAD_RESULT",
-            result: {
-              success: true,
-              retryCount: data.retryCount,
-              ...(data.applicationId
-                ? { applicationId: data.applicationId }
-                : {}),
-              ...(data.status ? { status: data.status } : {}),
-            },
+            result: toUploadResult(payload.data),
           });
           return;
         }
@@ -518,9 +527,16 @@ const AppInner: React.FC = () => {
         key === CREDENTIAL_KEYS.lineEmail ||
         key === CREDENTIAL_KEYS.linePassword
       ) {
+        const api = typeof window !== "undefined" ? window.api : undefined;
+        const [emailStatus, passwordStatus] = await Promise.all([
+          api?.credential?.get?.(CREDENTIAL_KEYS.lineEmail),
+          api?.credential?.get?.(CREDENTIAL_KEYS.linePassword),
+        ]);
         dispatch({
           type: "SET_LINE_CREDENTIALS_CONFIGURED",
-          configured: true,
+          configured:
+            isCredentialConfigured(emailStatus) &&
+            isCredentialConfigured(passwordStatus),
         });
       }
     },
@@ -679,6 +695,8 @@ const AppInner: React.FC = () => {
           <ConfigPanel
             config={state.config}
             aiApiKeyConfigured={state.aiApiKeyConfigured}
+            lineCredentialsConfigured={state.lineCredentialsConfigured}
+            lineUploadEnabled={LINE_CREATORS_UPLOAD_ENABLED}
             onSaveConfig={saveConfig}
             onSaveCredential={saveCredential}
             onExportConfig={exportConfig}
@@ -760,17 +778,20 @@ const AppInner: React.FC = () => {
               stampSet={state.stampSet}
               onTitleChange={handleTitleChange}
               onDescriptionChange={handleDescriptionChange}
+              onCreatorNameChange={handleCreatorNameChange}
+              onCopyrightChange={handleCopyrightChange}
               onReplaceImage={handleReplaceImage}
               onRetryImage={handleRetryImage}
               onExport={handleExport}
               isExporting={isExporting}
               exportMessage={exportMessage}
               onUpload={handleStartUpload}
+              lineUploadEnabled={LINE_CREATORS_UPLOAD_ENABLED}
             />
           )}
 
           {/* 4. アップロード（要件 5） */}
-          {state.step === "upload" && (
+          {LINE_CREATORS_UPLOAD_ENABLED && state.step === "upload" && (
             <UploadPanel
               isValidForUpload={state.stampSet?.isValidForUpload ?? false}
               credentialsConfigured={state.lineCredentialsConfigured}

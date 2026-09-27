@@ -475,6 +475,8 @@ class _StampSetAdapter:
     def __init__(self, model: UploadStampSetPayload) -> None:
         self.title = model.title
         self.description = model.description
+        self.creator_name = model.creator_name
+        self.copyright = model.copyright
         self.images = list(model.images)
         self.main_image_path = model.main_image_path
         self.thumbnail_path = model.thumbnail_path

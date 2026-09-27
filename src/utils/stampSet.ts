@@ -4,7 +4,12 @@ import type {
   StampImage,
   StampSet,
 } from "../types/index";
-import { validateDescription, validateTitle } from "./validation";
+import {
+  validateCopyright,
+  validateCreatorName,
+  validateDescription,
+  validateTitle,
+} from "./validation";
 
 const VALID_STAMP_COUNTS = new Set([8, 16, 24, 32, 40]);
 
@@ -23,6 +28,8 @@ export interface StampSetBuildResult {
 export function validateStampSet(stampSet: StampSet): StampSetValidation {
   const titleError = validateTitle(stampSet.title);
   const descriptionError = validateDescription(stampSet.description);
+  const creatorNameError = validateCreatorName(stampSet.creatorName);
+  const copyrightError = validateCopyright(stampSet.copyright);
   const completedImages = stampSet.images.filter(
     (image) => image.processingStatus === "done",
   );
@@ -37,6 +44,8 @@ export function validateStampSet(stampSet: StampSet): StampSetValidation {
   const issues: string[] = [];
   if (titleError) issues.push(titleError.message);
   if (descriptionError) issues.push(descriptionError.message);
+  if (creatorNameError) issues.push(creatorNameError.message);
+  if (copyrightError) issues.push(copyrightError.message);
   if (!VALID_STAMP_COUNTS.has(stampSet.images.length)) {
     issues.push("スタンプ画像の枚数は8・16・24・32・40枚のいずれかにしてください。");
   }
@@ -47,10 +56,14 @@ export function validateStampSet(stampSet: StampSet): StampSetValidation {
     issues.push(`LINE規格に適合していない画像が${invalidImages.length}枚あります。`);
   }
 
-  const metadataValid = titleError === null && descriptionError === null;
-  const canExport = metadataValid && completedImages.length > 0;
+  const exportMetadataValid = titleError === null && descriptionError === null;
+  const uploadMetadataValid =
+    exportMetadataValid &&
+    creatorNameError === null &&
+    copyrightError === null;
+  const canExport = exportMetadataValid && completedImages.length > 0;
   const isValidForUpload =
-    metadataValid &&
+    uploadMetadataValid &&
     VALID_STAMP_COUNTS.has(stampSet.images.length) &&
     failedImages.length === 0 &&
     invalidImages.length === 0;
@@ -148,6 +161,8 @@ export async function buildStampSetFromGeneratedImages(
   const stampSet = recalculateStampSet({
     title: "",
     description: "",
+    creatorName: "",
+    copyright: "",
     images,
     isValidForUpload: false,
   });

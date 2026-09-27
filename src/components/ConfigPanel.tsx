@@ -39,6 +39,10 @@ const SENSITIVE_FIELDS: ReadonlyArray<string> = [
   "credentials",
   "secret",
   "token",
+  "line_email",
+  "lineEmail",
+  "line_password",
+  "linePassword",
 ];
 
 export interface ConfigPanelProps {
@@ -46,6 +50,10 @@ export interface ConfigPanelProps {
   config: Config | null;
   /** AI 画像生成用の API キーがキーチェーンに設定済みか（値は渡さない） */
   aiApiKeyConfigured?: boolean;
+  /** LINEのメールアドレスとパスワードが両方キーチェーンに設定済みか */
+  lineCredentialsConfigured?: boolean;
+  /** 保留中のLINEアップロード用認証情報UIを表示するか */
+  lineUploadEnabled?: boolean;
   /**
    * 設定を保存する（config.json への書き込み）。
    * 認証情報は含まない Config のみを渡す。成功時は解決、失敗時は reject。
@@ -137,6 +145,8 @@ const EMPTY_CONFIG: Config = {
 const ConfigPanel: React.FC<ConfigPanelProps> = ({
   config,
   aiApiKeyConfigured = false,
+  lineCredentialsConfigured = false,
+  lineUploadEnabled = true,
   onSaveConfig,
   onSaveCredential,
   onExportConfig,
@@ -147,6 +157,8 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
   const [form, setForm] = useState<Config>({ ...EMPTY_CONFIG, ...(config ?? {}) });
   // API キー入力（Config には保存せず、キーチェーンにのみ送る）
   const [apiKey, setApiKey] = useState<string>("");
+  const [lineEmail, setLineEmail] = useState<string>("");
+  const [linePassword, setLinePassword] = useState<string>("");
 
   // 親から渡される config が変化したらフォームへ反映する（欠損フィールドは補完する）
   useEffect(() => {
@@ -187,11 +199,21 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
         await onSaveCredential(CREDENTIAL_KEYS.aiApiKey, trimmedKey);
       }
 
+      const trimmedEmail = lineEmail.trim();
+      if (trimmedEmail.length > 0) {
+        await onSaveCredential(CREDENTIAL_KEYS.lineEmail, trimmedEmail);
+      }
+      if (linePassword.length > 0) {
+        await onSaveCredential(CREDENTIAL_KEYS.linePassword, linePassword);
+      }
+
       // 2) 認証情報を含まない Config のみを保存する（要件 6.4）
       await onSaveConfig({ ...form });
 
       // 3) メモリ上の API キー入力をクリアする（画面に残さない）
       setApiKey("");
+      setLineEmail("");
+      setLinePassword("");
       setSuccessMessage("設定を保存しました");
     } catch (err) {
       setErrorMessage(
@@ -281,6 +303,9 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
   const apiKeyPlaceholder = aiApiKeyConfigured
     ? "設定済み（変更する場合のみ入力）"
     : "APIキーを入力";
+  const lineCredentialPlaceholder = lineCredentialsConfigured
+    ? "設定済み（変更する場合のみ入力）"
+    : "入力してください";
 
   return (
     <section className="config-panel" aria-label="アプリ設定">
@@ -324,6 +349,48 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
           API キーは OS のキーチェーンに安全に保存され、設定ファイルやエクスポートには含まれません。
         </p>
       </div>
+
+      {lineUploadEnabled && (
+        <fieldset className="config-panel__credential-group">
+          <legend>LINE Creators Market 認証情報</legend>
+          <div className="config-panel__field">
+            <label htmlFor="config-line-email">LINEメールアドレス</label>
+            <input
+              id="config-line-email"
+              name="lineEmail"
+              type="email"
+              autoComplete="off"
+              value={lineEmail}
+              placeholder={lineCredentialPlaceholder}
+              onChange={(event) => {
+                setLineEmail(event.target.value);
+                setSuccessMessage(null);
+                setErrorMessage(null);
+              }}
+            />
+          </div>
+          <div className="config-panel__field">
+            <label htmlFor="config-line-password">LINEパスワード</label>
+            <input
+              id="config-line-password"
+              name="linePassword"
+              type="password"
+              autoComplete="off"
+              value={linePassword}
+              placeholder={lineCredentialPlaceholder}
+              onChange={(event) => {
+                setLinePassword(event.target.value);
+                setSuccessMessage(null);
+                setErrorMessage(null);
+              }}
+              aria-describedby="config-line-credentials-note"
+            />
+          </div>
+          <p id="config-line-credentials-note" className="config-panel__note">
+            メールアドレスとパスワードはOSのキーチェーンにのみ保存されます。両方が保存されるとアップロードを開始できます。
+          </p>
+        </fieldset>
+      )}
 
       {/* --- OpenAI モデル（aiEngine が openai のとき有効） --- */}
       <div className="config-panel__field">

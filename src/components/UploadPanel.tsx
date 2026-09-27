@@ -65,6 +65,7 @@ const UploadPanel: React.FC<UploadPanelProps> = ({
 }) => {
   const uploadable = canUpload(isValidForUpload, credentialsConfigured);
   const isUploading = !!progress && progress.phase !== "done";
+  const isDraft = result?.success && result.status === "draft";
 
   const handleUploadClick = (): void => {
     // 認証情報未設定時はアップロードを開始しない（Requirement 5.8）。
@@ -139,10 +140,15 @@ const UploadPanel: React.FC<UploadPanelProps> = ({
         <div className="upload-panel__result">
           {result.success ? (
             <div className="upload-panel__result--success" role="status">
-              <p>アップロードが完了しました。</p>
+              <p>
+                {isDraft
+                  ? "LINE Creators Marketに下書きを保存しました。"
+                  : "アップロードが完了しました。"}
+              </p>
               {result.applicationId && (
                 <p>
-                  申請ID: <strong>{result.applicationId}</strong>
+                  {isDraft ? "管理ID" : "申請ID"}: {" "}
+                  <strong>{result.applicationId}</strong>
                 </p>
               )}
               {result.status && (

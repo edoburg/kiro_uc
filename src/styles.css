@@ -171,6 +171,18 @@ h2 {
   margin-bottom: 16px;
 }
 
+.config-panel__credential-group {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.config-panel__credential-group legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+
 .config-panel__note,
 .setup-wizard__hint {
   color: var(--color-muted);

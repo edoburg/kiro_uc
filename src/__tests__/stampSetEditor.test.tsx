@@ -49,6 +49,8 @@ function makeStampSet(overrides: Partial<StampSet> = {}): StampSet {
   return {
     title: "サンプルスタンプ",
     description: "説明文",
+    creatorName: "サンプル作者",
+    copyright: "© Sample Creator",
     images: Array.from({ length: 8 }, (_, index) => makeImage(index)),
     isValidForUpload: true,
     ...overrides,
@@ -56,10 +58,15 @@ function makeStampSet(overrides: Partial<StampSet> = {}): StampSet {
 }
 
 /** コールバックを vi.fn() で用意しつつ StampSetEditor をレンダリングする */
-function renderEditor(stampSet: StampSet) {
+function renderEditor(
+  stampSet: StampSet,
+  overrides: Partial<Omit<StampSetEditorProps, "stampSet">> = {},
+) {
   const handlers = {
     onTitleChange: vi.fn(),
     onDescriptionChange: vi.fn(),
+    onCreatorNameChange: vi.fn(),
+    onCopyrightChange: vi.fn(),
     onReplaceImage: vi.fn(),
     onRetryImage: vi.fn(),
     onExport: vi.fn(),
@@ -68,7 +75,7 @@ function renderEditor(stampSet: StampSet) {
     onUpload: vi.fn(),
   } satisfies Omit<StampSetEditorProps, "stampSet">;
 
-  render(<StampSetEditor stampSet={stampSet} {...handlers} />);
+  render(<StampSetEditor stampSet={stampSet} {...handlers} {...overrides} />);
   return handlers;
 }
 
@@ -172,6 +179,25 @@ describe("StampSetEditor - コールバック発火", () => {
     expect(handlers.onUpload).toHaveBeenCalledTimes(1);
   });
 
+  it("LINEアップロード保留中は関連項目とアップロード導線を表示しない", () => {
+    renderEditor(
+      makeStampSet({ creatorName: "", copyright: "" }),
+      { lineUploadEnabled: false },
+    );
+
+    expect(screen.queryByLabelText(/クリエイター名/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/コピーライト/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "LINE Creators Market へアップロード",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("クリエイター名を入力してください"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "エクスポート（ZIP保存）" })).toBeEnabled();
+  });
+
   it("LINE規格未通過のときアップロードボタンは無効（要件 5.6）", () => {
     const invalidImage = {
       ...makeImage(0),
@@ -211,6 +237,8 @@ describe("StampSetEditor - コールバック発火", () => {
     const handlers = {
       onTitleChange: vi.fn(),
       onDescriptionChange: vi.fn(),
+      onCreatorNameChange: vi.fn(),
+      onCopyrightChange: vi.fn(),
       onReplaceImage: vi.fn(),
       onRetryImage: vi.fn(),
       onExport: vi.fn(),
@@ -230,6 +258,8 @@ describe("StampSetEditor - コールバック発火", () => {
     const handlers = {
       onTitleChange: vi.fn(),
       onDescriptionChange: vi.fn(),
+      onCreatorNameChange: vi.fn(),
+      onCopyrightChange: vi.fn(),
       onReplaceImage: vi.fn(),
       onRetryImage: vi.fn(),
       onExport: vi.fn(),

@@ -51,6 +51,8 @@ function stampSet(count = 8): StampSet {
   return recalculateStampSet({
     title: "有効なタイトル",
     description: "説明",
+    creatorName: "テスト作者",
+    copyright: "© Test Creator",
     images: Array.from({ length: count }, (_, index) => stampImage(index)),
     isValidForUpload: false,
   });
@@ -93,6 +95,19 @@ describe("StampSet全体バリデーション", () => {
     expect(result.canExport).toBe(true);
     expect(result.isValidForUpload).toBe(false);
     expect(result.issues.some((issue) => issue.includes("枚数"))).toBe(true);
+  });
+
+  it("クリエイター名とコピーライトはアップロードに必須だがZIP出力には影響しない", () => {
+    const incomplete = stampSet(8);
+    incomplete.creatorName = "";
+    incomplete.copyright = "";
+
+    const result = validateStampSet(incomplete);
+
+    expect(result.canExport).toBe(true);
+    expect(result.isValidForUpload).toBe(false);
+    expect(result.issues).toContain("クリエイター名を入力してください");
+    expect(result.issues).toContain("コピーライトを入力してください");
   });
 
   it("画像処理中はreducerがアップロード可否を再計算する", () => {

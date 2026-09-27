@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { StampSet } from "../types/index";
 import {
   toExportCreateRequest,
+  toUploadErrorResult,
+  toUploadResult,
   toUploadStartRequest,
 } from "../utils/ipcMappers";
 
@@ -10,6 +12,8 @@ function makeStampSet(): StampSet {
   return {
     title: "テストセット",
     description: "説明",
+    creatorName: "テスト作者",
+    copyright: "© Test Creator",
     images: [
       {
         sourcePath: "C:/tmp/source.png",
@@ -63,6 +67,8 @@ describe("IPC契約mapper", () => {
       stampSet: {
         title: "テストセット",
         description: "説明",
+        creatorName: "テスト作者",
+        copyright: "© Test Creator",
         images: [
           {
             stampPath: "C:/tmp/stamp.png",
@@ -88,5 +94,32 @@ describe("IPC契約mapper", () => {
 
     expect(request.stampSet.mainImagePath).toBeNull();
     expect(request.stampSet.thumbnailPath).toBeNull();
+  });
+
+  it("アップロード完了ペイロードをUI型へ変換する", () => {
+    expect(
+      toUploadResult({
+        success: true,
+        applicationId: "12345",
+        status: "draft",
+        errorType: null,
+        retryCount: 0,
+        errorMessage: null,
+      }),
+    ).toEqual({
+      success: true,
+      applicationId: "12345",
+      status: "draft",
+      retryCount: 0,
+    });
+  });
+
+  it("SSEエラーを未知の値で補完してUI型へ変換する", () => {
+    expect(toUploadErrorResult({ message: "接続が切断されました。" })).toEqual({
+      success: false,
+      errorType: "unknown",
+      retryCount: 0,
+      errorMessage: "接続が切断されました。",
+    });
   });
 });

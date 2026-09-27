@@ -100,6 +100,23 @@ describe("UploadPanel - 成功結果の表示", () => {
       screen.getByText("アップロードが完了しました。")
     ).toBeInTheDocument();
   });
+
+  it("下書き保存時は審査申請済みと誤認させない表示にする", () => {
+    render(
+      <UploadPanel
+        isValidForUpload={true}
+        credentialsConfigured={true}
+        result={successResult({ applicationId: "12345", status: "draft" })}
+        onUpload={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByText("LINE Creators Marketに下書きを保存しました。")
+    ).toBeInTheDocument();
+    expect(screen.getByText(/管理ID:/)).toBeInTheDocument();
+    expect(screen.queryByText("アップロードが完了しました。")).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
