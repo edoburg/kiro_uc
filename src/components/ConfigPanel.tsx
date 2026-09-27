@@ -60,12 +60,12 @@ export interface ConfigPanelProps {
    * 設定をエクスポートする（要件 6.5）。
    * 返却値はバックエンドの export_sanitized() により認証情報が除外済みの JSON オブジェクト。
    */
-  onExportConfig: () => Promise<Record<string, unknown>>;
+  onExportConfig: () => Promise<Config>;
   /**
    * 設定をインポートする（要件 6.6）。
    * スキーマ検証はバックエンドでも行われるが、フロント側でも事前検証する。
    */
-  onImportConfig: (data: Record<string, unknown>) => Promise<void>;
+  onImportConfig: (data: Config) => Promise<void>;
 }
 
 /**
@@ -259,13 +259,13 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
       }
 
       // 検証通過: バックエンドへインポートを依頼し、上書き後の内容をフォームへ反映する（要件 6.6）
-      const data = parsed as Record<string, unknown>;
+      const data = parsed as Config;
       await onImportConfig(data);
       setForm({
-        aiEngine: data.aiEngine as Config["aiEngine"],
-        outputDirectory: data.outputDirectory as string,
-        openaiModel: data.openaiModel as Config["openaiModel"],
-        sdEndpoint: data.sdEndpoint as string,
+        aiEngine: data.aiEngine,
+        outputDirectory: data.outputDirectory,
+        openaiModel: data.openaiModel,
+        sdEndpoint: data.sdEndpoint,
       });
       setSuccessMessage("設定をインポートしました");
     } catch (err) {

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, AsyncIterator, Optional
 
@@ -44,6 +44,13 @@ from backend.models import (
     GenerationRequest as GenerationRequestModel,
     LineCredentials,
     UploadProgress,
+)
+from backend.api_contracts import (
+    ConfigPayload,
+    ProcessRequestPayload,
+    UploadRequestPayload,
+    UploadStampSetPayload,
+    to_api_payload,
 )
 from backend.services.config_service import ConfigService
 from backend.services.image_generator_service import (
@@ -112,10 +119,7 @@ def _sse_event(data: Any, event: Optional[str] = None) -> str:
     sse-starlette は依存関係に含まれないため、text/event-stream の手動フレーミングで
     実装する（"event:" / "data:" 行 + 空行区切り）。
     """
-    if is_dataclass(data) and not isinstance(data, type):
-        payload = asdict(data)
-    else:
-        payload = data
+    payload = to_api_payload(data)
     body = json.dumps(payload, ensure_ascii=False)
     prefix = f"event: {event}\n" if event else ""
     return f"{prefix}data: {body}\n\n"
@@ -144,11 +148,8 @@ async def health() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-class ConfigRequest(BaseModel):
-    ai_engine: str = "openai"
-    output_directory: str = ""
-    openai_model: str = "gpt-image-2.5-flare"
-    sd_endpoint: str = ""
+class ConfigRequest(ConfigPayload):
+    """レンダラーから受け取る完全なConfig（公開形式はcamelCase）。"""
 
 
 class CredentialRequest(BaseModel):
@@ -170,7 +171,7 @@ async def get_config() -> dict:
             status_code=500,
             detail="設定の読み込みに失敗しました。",
         ) from exc
-    return asdict(config)
+    return to_api_payload(config)
 
 
 @app.post("/config")
@@ -206,7 +207,7 @@ async def export_config() -> dict:
     セキュリティ: export_sanitized() を必ず使用し、認証情報は決して返さない。
     """
     try:
-        return config_service.export_sanitized()
+        return to_api_payload(config_service.export_sanitized())
     except Exception as exc:  # noqa: BLE001
         log_service.log(LogLevel.ERROR, "main.export_config", str(exc))
         raise HTTPException(
@@ -216,20 +217,20 @@ async def export_config() -> dict:
 
 
 @app.post("/config/import")
-async def import_config(data: dict) -> dict[str, str]:
+async def import_config(data: ConfigRequest) -> dict[str, str]:
     """設定をインポートする（スキーマ検証後のみ上書き、Requirements 6.6, 6.7）。
 
     スキーマ違反の場合は既存 Config を変更せず、日本語エラーメッセージを返す。
     """
     try:
-        config_service.import_from_dict(data)
-    except ValueError as exc:
-        # スキーマ検証失敗: 既存 Config は保全される（Requirements 6.7）
-        log_service.log(LogLevel.WARN, "main.import_config", str(exc))
-        raise HTTPException(
-            status_code=400,
-            detail="設定のインポートに失敗しました。ファイルの内容を確認してください。",
-        ) from exc
+        config_service.save(
+            Config(
+                ai_engine=data.ai_engine,
+                output_directory=data.output_directory,
+                openai_model=data.openai_model,
+                sd_endpoint=data.sd_endpoint,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         log_service.log(LogLevel.ERROR, "main.import_config", str(exc))
         raise HTTPException(
@@ -367,8 +368,8 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
 # ---------------------------------------------------------------------------
 
 
-class ProcessRequest(BaseModel):
-    source_path: str
+class ProcessRequest(ProcessRequestPayload):
+    """画像処理要求（公開形式は sourcePath）。"""
 
 
 @app.post("/process")
@@ -397,7 +398,7 @@ async def process_image(request: ProcessRequest) -> dict:
             status_code=500,
             detail="画像の変換中に予期しないエラーが発生しました。",
         ) from exc
-    return asdict(processed)
+    return to_api_payload(processed)
 
 
 # ---------------------------------------------------------------------------
@@ -405,30 +406,14 @@ async def process_image(request: ProcessRequest) -> dict:
 # ---------------------------------------------------------------------------
 
 
-class UploadImageModel(BaseModel):
-    stamp_path: str
-    main_image_path: str = ""
-    thumbnail_path: str = ""
-
-
-class UploadStampSetModel(BaseModel):
-    title: str
-    description: str = ""
-    images: list[UploadImageModel] = []
-    main_image_path: str | None = None
-    thumbnail_path: str | None = None
-
-
-class UploadRequest(BaseModel):
-    stamp_set: UploadStampSetModel
-    email_credential_key: str = "line_email"
-    password_credential_key: str = "line_password"
+class UploadRequest(UploadRequestPayload):
+    """LINEアップロード要求（公開形式はcamelCase）。"""
 
 
 class _StampSetAdapter:
     """UploaderService が getattr で参照する属性を持つ軽量ラッパー。"""
 
-    def __init__(self, model: UploadStampSetModel) -> None:
+    def __init__(self, model: UploadStampSetPayload) -> None:
         self.title = model.title
         self.description = model.description
         self.images = list(model.images)

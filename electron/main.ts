@@ -2,6 +2,15 @@ import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, WebContents } from "el
 import { spawn, ChildProcess } from "child_process";
 import * as path from "path";
 import * as http from "http";
+import type {
+  Config,
+  GenerationRequest,
+  ProcessedImageSet,
+} from "../src/types/index";
+import type {
+  StatusResponse,
+  UploadStartRequest,
+} from "../src/types/ipc";
 
 /**
  * Electron メインプロセス。
@@ -27,8 +36,8 @@ import * as http from "http";
  * リクエスト/レスポンス型（ipcRenderer.invoke → Promise を返す）:
  *   "config:get"          () -> Config
  *   "config:save"         (config: Config) -> { status, message }
- *   "config:export"       () -> Record<string, unknown>   （センシティブフィールド除外）
- *   "config:import"       (data: Record<string, unknown>) -> { status, message }
+ *   "config:export"       () -> Config                    （センシティブフィールド除外）
+ *   "config:import"      (config: Config) -> { status, message }
  *   "credential:save"     (key: string, value: string) -> { status, key }
  *   "credential:get"      (key: string) -> { key, configured: boolean }
  *   "image:process"       (sourcePath: string) -> ProcessedImageSet
@@ -377,22 +386,22 @@ function parseSseEvent(rawEvent: string): SseMessage | null {
 
 /** 設定を取得する */
 ipcMain.handle("config:get", async () => {
-  return proxyRequest("GET", "/config");
+  return proxyRequest<Config>("GET", "/config");
 });
 
 /** 設定を保存する */
-ipcMain.handle("config:save", async (_event: IpcMainInvokeEvent, config: unknown) => {
-  return proxyRequest("POST", "/config", config);
+ipcMain.handle("config:save", async (_event: IpcMainInvokeEvent, config: Config) => {
+  return proxyRequest<StatusResponse>("POST", "/config", config);
 });
 
 /** 設定をエクスポートする（センシティブフィールドを除外） */
 ipcMain.handle("config:export", async () => {
-  return proxyRequest("GET", "/config/export");
+  return proxyRequest<Config>("GET", "/config/export");
 });
 
 /** 設定をインポートする */
-ipcMain.handle("config:import", async (_event: IpcMainInvokeEvent, data: unknown) => {
-  return proxyRequest("POST", "/config/import", data);
+ipcMain.handle("config:import", async (_event: IpcMainInvokeEvent, config: Config) => {
+  return proxyRequest<StatusResponse>("POST", "/config/import", config);
 });
 
 // --- Credentials (OS Keychain) ---
@@ -415,7 +424,7 @@ ipcMain.handle("credential:get", async (_event: IpcMainInvokeEvent, key: string)
 
 /** 画像処理（LINE規格変換）を実行する */
 ipcMain.handle("image:process", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
-  return proxyRequest("POST", "/process", { source_path: sourcePath });
+  return proxyRequest<ProcessedImageSet>("POST", "/process", { sourcePath });
 });
 
 // --- Logs ---
@@ -442,7 +451,7 @@ ipcMain.handle(
  * AI 画像生成を開始する。進捗は CH_GENERATE_PROGRESS チャネルへ push される。
  * invoke の戻り値は購読用の streamId。
  */
-ipcMain.handle("image:generate", async (event: IpcMainInvokeEvent, request: unknown) => {
+ipcMain.handle("image:generate", async (event: IpcMainInvokeEvent, request: GenerationRequest) => {
   const streamId = nextStreamId("generate");
   streamSse(event.sender, CH_GENERATE_PROGRESS, streamId, "/generate", request);
   return { streamId };
@@ -454,7 +463,7 @@ ipcMain.handle("image:generate", async (event: IpcMainInvokeEvent, request: unkn
  * LINE Creators Market へのアップロードを開始する。進捗は CH_UPLOAD_PROGRESS
  * チャネルへ push される。invoke の戻り値は購読用の streamId。
  */
-ipcMain.handle("upload:start", async (event: IpcMainInvokeEvent, request: unknown) => {
+ipcMain.handle("upload:start", async (event: IpcMainInvokeEvent, request: UploadStartRequest) => {
   const streamId = nextStreamId("upload");
   streamSse(event.sender, CH_UPLOAD_PROGRESS, streamId, "/upload", request);
   return { streamId };

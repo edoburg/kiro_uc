@@ -25,18 +25,18 @@
 
 ## P0: IPC/APIデータ契約の統一
 
-- [ ] **T-001: ConfigのcamelCase／snake_case変換を統一する**
+- [x] **T-001: ConfigのcamelCase／snake_case変換を統一する**
   - フロントの `aiEngine`, `outputDirectory`, `openaiModel`, `sdEndpoint` と、Pythonの `ai_engine`, `output_directory`, `openai_model`, `sd_endpoint` を正しく相互変換する。
   - 保存、取得、初回セットアップの全経路で同じ変換規則を使う。
   - 不明なフィールドを黙って既定値へ置き換えないよう、API境界の検証を厳格化する。
   - 完了条件: 設定画面で指定した出力ディレクトリが `config.json` に保存され、再起動後にも同じ値が表示される。
 
-- [ ] **T-002: Configのエクスポート／インポート形式を統一する**
+- [x] **T-002: Configのエクスポート／インポート形式を統一する**
   - バックエンドが出力する形式とフロントのインポート検証形式を一致させる。
   - APIキー、LINEメールアドレス、パスワードは含めない。
   - 完了条件: このアプリでエクスポートした設定ファイルを、そのまま同じアプリへインポートできる。
 
-- [ ] **T-003: IPC/API共有型と変換関数を用意する**
+- [x] **T-003: IPC/API共有型と変換関数を用意する**
   - Config、画像処理結果、アップロード要求、アップロード結果の境界型を明示する。
   - `unknown` を必要最小限にし、変換をElectron IPC層または専用mapperへ集約する。
   - 完了条件: TypeScriptとPythonの契約差分を統合テストで検出できる。
@@ -215,4 +215,3 @@
 - `npm run lint` はESLint設定ファイルがないため失敗する。
 - Pythonとフロントエンドの単体テストは存在するが、App／Electron IPC／FastAPIを通した統合テストは不足している。
 - Stable DiffusionとMidjourneyの実API呼び出しは未実装である。対応する場合は別途タスク化する。
-

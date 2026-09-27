@@ -3,7 +3,10 @@ import type {
   Config,
   GenerationRequest,
 } from "./types/index";
-import type { StreamPushPayload } from "./types/window-api";
+import type {
+  GenerationStreamPayload,
+  UploadStreamPayload,
+} from "./types/window-api";
 
 import PromptInput from "./components/PromptInput";
 import ImagePreviewGrid from "./components/ImagePreviewGrid";
@@ -13,7 +16,6 @@ import ConfigPanel from "./components/ConfigPanel";
 import SetupWizard, { needsSetup } from "./components/SetupWizard";
 import LogViewer from "./components/LogViewer";
 import type { LogFilter } from "./components/LogViewer";
-import type { UploadProgress } from "./components/UploadPanel";
 
 import { usePromptHistoryStore } from "./stores/promptHistoryStore";
 import { CREDENTIAL_KEYS } from "./components/ConfigPanel";
@@ -22,6 +24,7 @@ import {
   useAppStore,
 } from "./stores/appStore";
 import type { LogEntry } from "./types/index";
+import { toUploadStartRequest } from "./utils/ipcMappers";
 
 /**
  * window.api が存在するときのみ callback を実行する小さなガード。
@@ -133,12 +136,11 @@ const AppInner: React.FC = () => {
       if (!api?.onGenerateProgress) {
         return undefined;
       }
-      const handler = (payload: StreamPushPayload): void => {
+      const handler = (payload: GenerationStreamPayload): void => {
         if (payload.event === "error") {
-          const data = payload.data as { message?: string } | undefined;
           dispatch({
             type: "GENERATION_FAILED",
-            message: data?.message ?? "画像の生成に失敗しました。",
+            message: payload.data.message ?? "画像の生成に失敗しました。",
           });
           return;
         }
@@ -146,26 +148,15 @@ const AppInner: React.FC = () => {
           dispatch({ type: "GENERATION_COMPLETE" });
           return;
         }
-        // progress: 完了画像を反映する
-        // バックエンド（GenerationProgress を asdict）は snake_case で送る:
-        //   { completed, total, latest_image_path, error: { error_type, message } | null,
-        //     index, data_url }
-        const data = payload.data as
-          | {
-              index?: number;
-              data_url?: string;
-              latest_image_path?: string;
-              error?: { error_type?: string; message?: string } | null;
-            }
-          | undefined;
-        if (data && typeof data.index === "number") {
+        if (payload.event === "progress") {
+          const data = payload.data;
           const hasError = data.error != null;
           dispatch({
             type: "UPSERT_GENERATED_IMAGE",
             image: {
               index: data.index,
-              dataUrl: data.data_url ?? "",
-              tempFilePath: data.latest_image_path ?? "",
+              dataUrl: data.dataUrl ?? "",
+              tempFilePath: data.latestImagePath ?? "",
               status: hasError ? "error" : "done",
               ...(hasError && data.error?.message
                 ? { errorMessage: data.error.message }
@@ -338,6 +329,7 @@ const AppInner: React.FC = () => {
     if (!state.stampSet) {
       return;
     }
+    const stampSet = state.stampSet;
     // 認証情報未設定時はアップロードを開始しない（要件 5.8）
     if (!state.lineCredentialsConfigured) {
       setError(
@@ -350,48 +342,50 @@ const AppInner: React.FC = () => {
     // アップロード進捗ストリームを購読する（要件 5.2）
     const api = typeof window !== "undefined" ? window.api : undefined;
     if (api?.onUploadProgress) {
-      api.onUploadProgress((payload: StreamPushPayload) => {
+      api.onUploadProgress((payload: UploadStreamPayload) => {
         if (payload.event === "error") {
-          const data = payload.data as { message?: string } | undefined;
+          const data = payload.data;
+          const isResult = "success" in data;
           dispatch({
             type: "SET_UPLOAD_RESULT",
             result: {
               success: false,
-              errorType: "unknown",
-              retryCount: 0,
+              errorType: data.errorType ?? "unknown",
+              retryCount: isResult ? data.retryCount : 0,
               errorMessage:
-                data?.message ?? "アップロードに失敗しました。",
+                (isResult ? data.errorMessage : data.message) ??
+                "アップロードに失敗しました。",
             },
           });
           return;
         }
         if (payload.event === "done") {
-          const data = payload.data as
-            | { applicationId?: string; status?: string }
-            | undefined;
+          const data = payload.data;
           dispatch({
             type: "SET_UPLOAD_RESULT",
             result: {
               success: true,
-              retryCount: 0,
-              ...(data?.applicationId
+              retryCount: data.retryCount,
+              ...(data.applicationId
                 ? { applicationId: data.applicationId }
                 : {}),
-              ...(data?.status ? { status: data.status } : {}),
+              ...(data.status ? { status: data.status } : {}),
             },
           });
           return;
         }
-        const progress = payload.data as UploadProgress | undefined;
-        if (progress) {
-          dispatch({ type: "SET_UPLOAD_PROGRESS", progress });
+        if (payload.event === "progress") {
+          dispatch({
+            type: "SET_UPLOAD_PROGRESS",
+            progress: payload.data,
+          });
         }
       });
     }
 
     const call = withApi((apiRef) =>
       apiRef.upload?.start
-        ? apiRef.upload.start(state.stampSet)
+        ? apiRef.upload.start(toUploadStartRequest(stampSet))
         : undefined,
     );
     call?.catch((err) => {
@@ -446,34 +440,26 @@ const AppInner: React.FC = () => {
     [dispatch],
   );
 
-  const exportConfig = useCallback(async (): Promise<
-    Record<string, unknown>
-  > => {
+  const exportConfig = useCallback(async (): Promise<Config> => {
     const call = withApi((api) =>
       api.config?.export ? api.config.export() : undefined,
     );
     const result = call ? await call : undefined;
-    return result ?? {};
+    if (!result) {
+      throw new Error("設定のエクスポートAPIを利用できません。");
+    }
+    return result;
   }, []);
 
   const importConfig = useCallback(
-    async (data: Record<string, unknown>): Promise<void> => {
+    async (data: Config): Promise<void> => {
       const call = withApi((api) =>
         api.config?.import ? api.config.import(data) : undefined,
       );
       if (call) {
         await call;
       }
-      // インポート結果を Config として反映する（認証情報は含まれない）
-      dispatch({
-        type: "SET_CONFIG",
-        config: {
-          aiEngine: data.aiEngine as Config["aiEngine"],
-          outputDirectory: data.outputDirectory as string,
-          openaiModel: data.openaiModel as Config["openaiModel"],
-          sdEndpoint: data.sdEndpoint as string,
-        },
-      });
+      dispatch({ type: "SET_CONFIG", config: data });
     },
     [dispatch],
   );

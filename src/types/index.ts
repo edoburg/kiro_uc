@@ -87,6 +87,14 @@ export interface StampSet {
   isValidForUpload: boolean;
 }
 
+/** バックエンドの画像処理APIが返す、1画像分のLINE規格変換結果。 */
+export interface ProcessedImageSet {
+  stampPath: string;
+  mainImagePath: string;
+  thumbnailPath: string;
+  validation: ValidationResult;
+}
+
 // --- アップロード ---
 
 /** LINE Creators Market アップロード結果 */

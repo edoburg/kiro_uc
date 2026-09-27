@@ -1,21 +1,13 @@
 import React from "react";
 import type { UploadResult } from "../types/index";
+import type { UploadProgressPayload } from "../types/ipc";
 
 /**
  * アップロード進捗情報。
  * バックエンド（UploaderService の UploadProgress）の形状に合わせたフロントエンド用の型。
  * 現時点で `src/types/index.ts` に共有型が存在しないため、ここでローカル定義する。
  */
-export interface UploadProgress {
-  /** 現在のアップロードフェーズ */
-  phase: "login" | "uploading" | "submitting" | "done";
-  /** 完了済みステップ数（プログレスバーの現在値） */
-  completed: number;
-  /** 全ステップ数（プログレスバーの最大値） */
-  total: number;
-  /** 進捗メッセージ（日本語） */
-  message: string;
-}
+export type UploadProgress = UploadProgressPayload;
 
 export interface UploadPanelProps {
   /** LINE 規格バリデーション全通過フラグ（StampSet.isValidForUpload） */

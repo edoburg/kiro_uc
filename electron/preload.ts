@@ -3,8 +3,19 @@ import type {
   GenerationRequest,
   Config,
   LogEntry,
+  ProcessedImageSet,
 } from "../src/types/index";
-import type { StreamPushPayload } from "../src/types/window-api";
+import type {
+  CredentialSaveResponse,
+  CredentialStatusResponse,
+  GenerationStreamPayload,
+  LogQueryParams,
+  RendererApi,
+  StatusResponse,
+  StreamHandle,
+  UploadStartRequest,
+  UploadStreamPayload,
+} from "../src/types/ipc";
 
 /**
  * レンダラープロセスに公開する window.api インターフェース（preload / task 18.2）。
@@ -23,39 +34,6 @@ import type { StreamPushPayload } from "../src/types/window-api";
  *   - クレデンシャル（api_key / password）の値はログに出力しない
  */
 
-// --- リクエスト/レスポンス型 ---
-
-/** config:save / config:import の戻り値 */
-interface StatusResponse {
-  status: string;
-  message?: string;
-}
-
-/** credential:save の戻り値 */
-interface CredentialSaveResponse {
-  status: string;
-  key: string;
-}
-
-/** credential:get の戻り値（値は返らず、設定有無のみ） */
-interface CredentialStatusResponse {
-  key: string;
-  configured: boolean;
-}
-
-/** image:generate / upload:start の戻り値（進捗購読用の streamId） */
-interface StreamHandle {
-  streamId: string;
-}
-
-/** logs:get のクエリパラメータ */
-interface LogQueryParams {
-  level?: string;
-  dateFrom?: string;
-  dateTo?: string;
-  limit?: number;
-}
-
 // SSE 進捗 push 用のチャネル名（main.ts と一致させること）
 const CH_GENERATE_PROGRESS = "image:generate:progress";
 const CH_UPLOAD_PROGRESS = "upload:progress";
@@ -64,11 +42,11 @@ const CH_UPLOAD_PROGRESS = "upload:progress";
  * 進捗 push チャネルを購読し、ペイロードをリスナへ転送する。
  * 戻り値の関数を呼ぶと購読を解除する（ipcRenderer.removeListener でリーク防止）。
  */
-function subscribe(
+function subscribe<TPayload>(
   channel: string,
-  listener: (payload: StreamPushPayload) => void
+  listener: (payload: TPayload) => void
 ): () => void {
-  const handler = (_event: IpcRendererEvent, payload: StreamPushPayload): void => {
+  const handler = (_event: IpcRendererEvent, payload: TPayload): void => {
     listener(payload);
   };
   ipcRenderer.on(channel, handler);
@@ -86,10 +64,10 @@ const api = {
     save: (config: Config): Promise<StatusResponse> =>
       ipcRenderer.invoke("config:save", config),
     /** 設定をエクスポートする（センシティブフィールドはバックエンドで除外済み） */
-    export: (): Promise<Record<string, unknown>> => ipcRenderer.invoke("config:export"),
+    export: (): Promise<Config> => ipcRenderer.invoke("config:export"),
     /** 設定をインポートする */
-    import: (data: Record<string, unknown>): Promise<StatusResponse> =>
-      ipcRenderer.invoke("config:import", data),
+    import: (config: Config): Promise<StatusResponse> =>
+      ipcRenderer.invoke("config:import", config),
   },
 
   // --- Credentials (OS Keychain) ---
@@ -115,7 +93,7 @@ const api = {
      * 画像処理（LINE規格変換）を実行する（同期レスポンス）。
      * 戻り値はバックエンドの ProcessedImageSet（Python 側モデル）。
      */
-    process: (sourcePath: string): Promise<unknown> =>
+    process: (sourcePath: string): Promise<ProcessedImageSet> =>
       ipcRenderer.invoke("image:process", sourcePath),
   },
 
@@ -125,7 +103,7 @@ const api = {
      * LINE Creators Market へのアップロードを開始する。戻り値は購読用の streamId。
      * 進捗は onUploadProgress で購読する。
      */
-    start: (request: unknown): Promise<StreamHandle> =>
+    start: (request: UploadStartRequest): Promise<StreamHandle> =>
       ipcRenderer.invoke("upload:start", request),
   },
 
@@ -142,16 +120,16 @@ const api = {
    * 戻り値は購読解除関数。リスナは push ペイロード
    * { streamId, event, data } を受け取る。
    */
-  onGenerateProgress: (listener: (payload: StreamPushPayload) => void): (() => void) =>
-    subscribe(CH_GENERATE_PROGRESS, listener),
+  onGenerateProgress: (listener: (payload: GenerationStreamPayload) => void): (() => void) =>
+    subscribe<GenerationStreamPayload>(CH_GENERATE_PROGRESS, listener),
 
   /**
    * アップロード進捗（upload:progress）を購読する。
    * 戻り値は購読解除関数。
    */
-  onUploadProgress: (listener: (payload: StreamPushPayload) => void): (() => void) =>
-    subscribe(CH_UPLOAD_PROGRESS, listener),
-} as const;
+  onUploadProgress: (listener: (payload: UploadStreamPayload) => void): (() => void) =>
+    subscribe<UploadStreamPayload>(CH_UPLOAD_PROGRESS, listener),
+} as const satisfies RendererApi;
 
 // contextIsolation を有効にした上で window.api として公開する
 contextBridge.exposeInMainWorld("api", api);
