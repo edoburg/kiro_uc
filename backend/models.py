@@ -90,6 +90,13 @@ class GenerationProgress:
     error: Optional[GenerationError]
     """エラー情報（エラーなしの場合 None）"""
 
+    index: Optional[int] = None
+    """直近で生成された画像のバッチ内インデックス（0 始まり。エラー時も設定する）"""
+
+    data_url: Optional[str] = None
+    """直近で生成された画像の base64 data URL（例: 'data:image/png;base64,...'）。
+    フロントエンドがプレビュー表示に用いる。生成失敗時は None。"""
+
 
 # 有効なスタンプ生成枚数（Requirements 1.4）
 VALID_STAMP_COUNTS = (8, 16, 24, 32, 40)

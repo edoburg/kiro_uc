@@ -24,10 +24,13 @@ structure.md の規約に従い、本サービス・各アダプタはステー�
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import tempfile
 from abc import ABC, abstractmethod
 from typing import AsyncIterator, Optional
+
+import httpx
 
 from backend.models import (
     GeneratedImage,
@@ -70,10 +73,18 @@ _ERROR_MESSAGES = {
 }
 
 
-def _build_error(index: int, error_type: str, timeout: int) -> GenerationError:
-    """エラー種別に応じた日本語メッセージ付きの GenerationError を生成する。"""
+def _build_error(
+    index: int, error_type: str, timeout: int, detail: Optional[str] = None
+) -> GenerationError:
+    """エラー種別に応じた日本語メッセージ付きの GenerationError を生成する。
+
+    detail が渡された場合は、原因の特定に役立つ詳細（例外メッセージ等）を末尾に付与する。
+    詳細は呼び出し側でAPIキー等を含めないようにすること。
+    """
     template = _ERROR_MESSAGES.get(error_type, _ERROR_MESSAGES[ERROR_UNKNOWN])
     message = template.format(index=index, timeout=timeout)
+    if detail:
+        message = f"{message}（詳細: {detail}）"
     return GenerationError(index=index, error_type=error_type, message=message)
 
 
@@ -163,19 +174,35 @@ class ImageGeneratorAdapter(ABC):
                 )
             except asyncio.TimeoutError:
                 error = _build_error(index, ERROR_TIMEOUT, timeout_seconds)
-            except GenerationAPIError:
-                error = _build_error(index, ERROR_API, timeout_seconds)
-            except Exception:  # noqa: BLE001 - 想定外エラーも種別化して継続する
-                error = _build_error(index, ERROR_UNKNOWN, timeout_seconds)
+            except GenerationAPIError as exc:
+                # アダプタが付与した詳細（status・OpenAI の理由など。APIキー値は含まない）を保持する
+                error = _build_error(index, ERROR_API, timeout_seconds, detail=str(exc))
+            except Exception as exc:  # noqa: BLE001 - 想定外エラーも種別化して継続する
+                error = _build_error(
+                    index, ERROR_UNKNOWN, timeout_seconds, detail=str(exc)
+                )
 
+            data_url: Optional[str] = None
             if error is None:
                 completed += 1
+                # フロントがプレビュー表示に使えるよう base64 data URL を生成する。
+                # 一時ファイルの読み込みに失敗した場合はエラー扱いにして継続する。
+                try:
+                    data_url = self._to_data_url(latest_path)
+                except OSError as exc:
+                    completed -= 1
+                    latest_path = None
+                    error = _build_error(
+                        index, ERROR_UNKNOWN, timeout_seconds, detail=str(exc)
+                    )
 
             yield GenerationProgress(
                 completed=completed,
                 total=count,
                 latest_image_path=latest_path,
                 error=error,
+                index=index,
+                data_url=data_url,
             )
 
     # ------------------------------------------------------------------
@@ -211,6 +238,20 @@ class ImageGeneratorAdapter(ABC):
         os.close(fd)
         return path
 
+    @staticmethod
+    def _to_data_url(path: Optional[str]) -> Optional[str]:
+        """一時ファイルの PNG を読み込み、base64 data URL に変換する。
+
+        フロントエンド（Electron レンダラー）はローカルパスを直接 <img src> で
+        読み込めないため、プレビュー表示用に data URL を生成する。
+        path が None の場合は None を返す。読み込み失敗時は OSError を送出する。
+        """
+        if not path:
+            return None
+        with open(path, "rb") as fp:
+            encoded = base64.b64encode(fp.read()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+
 
 # ---------------------------------------------------------------------------
 # 具象アダプタ
@@ -232,13 +273,20 @@ class OpenAIImageAdapter(ImageGeneratorAdapter):
     """
 
     engine_name = "openai"
-    CREDENTIAL_KEY = "openai_api_key"
+    # フロントエンド（ConfigPanel の CREDENTIAL_KEYS.aiApiKey）が保存するキー名と一致させる。
+    # AIエンジン共通の APIキーとして OS Keychain に "ai_api_key" で保存される。
+    CREDENTIAL_KEY = "ai_api_key"
     DEFAULT_MODEL = "gpt-image-2.5-flare"
 
     #: gpt-image-2.5 の生成パラメータ（透過PNG・生成サイズ）
     BACKGROUND = "transparent"
     OUTPUT_FORMAT = "png"
     IMAGE_SIZE = "1024x1024"
+
+    #: OpenAI Images API エンドポイント
+    API_URL = "https://api.openai.com/v1/images/generations"
+    #: 1 リクエストあたりの HTTP タイムアウト（秒）。generate() 側の 180 秒より短く設定する。
+    _request_timeout = 150.0
 
     async def _generate_one(
         self, prompt: str, style: Optional[str], index: int
@@ -270,13 +318,70 @@ class OpenAIImageAdapter(ImageGeneratorAdapter):
         background='transparent'・output_format='png'・size='1024x1024' を指定する。
         APIキーは Authorization ヘッダにのみ使用し、ログ・例外には含めない。
 
-        実際の HTTP 呼び出しはここで httpx を用いて実装する。テストではこの
-        メソッドをモックに差し替える（外部サービスへの実通信は行わない）。
+        テストではこのメソッドをモックに差し替える（外部サービスへの実通信は行わない）。
         API エラー時は GenerationAPIError を送出すること。
         """
-        raise NotImplementedError(
-            "OpenAI gpt-image-2.5 API 呼び出しは未実装です（テストではモックに差し替えてください）。"
-        )
+        # style が指定されていればプロンプトへ反映する（未指定はそのまま）
+        full_prompt = f"{prompt}（スタイル: {style}）" if style else prompt
+
+        payload = {
+            "model": model,
+            "prompt": full_prompt,
+            "n": 1,
+            "size": self.IMAGE_SIZE,
+            "background": self.BACKGROUND,
+            "output_format": self.OUTPUT_FORMAT,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self._request_timeout) as client:
+                response = await client.post(
+                    self.API_URL, json=payload, headers=headers
+                )
+        except httpx.HTTPError as exc:
+            # ネットワーク/タイムアウト等。APIキー値は含めない。
+            raise GenerationAPIError(
+                f"OpenAI API への接続に失敗しました: {type(exc).__name__}"
+            ) from exc
+
+        if response.status_code != 200:
+            # エラー本文から message を取り出す（APIキーは含めない）。
+            detail = self._extract_error_message(response)
+            raise GenerationAPIError(
+                f"OpenAI API がエラーを返しました（status {response.status_code}）: {detail}"
+            )
+
+        try:
+            data = response.json()
+            b64 = data["data"][0]["b64_json"]
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise GenerationAPIError(
+                "OpenAI API のレスポンス形式が想定と異なります。"
+            ) from exc
+
+        try:
+            return base64.b64decode(b64)
+        except (ValueError, TypeError) as exc:
+            raise GenerationAPIError(
+                "OpenAI API が返した画像データの復号に失敗しました。"
+            ) from exc
+
+    @staticmethod
+    def _extract_error_message(response: "httpx.Response") -> str:
+        """エラーレスポンスから安全に message を取り出す（APIキー等は含めない）。"""
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                err = body.get("error")
+                if isinstance(err, dict) and isinstance(err.get("message"), str):
+                    return err["message"]
+        except ValueError:
+            pass
+        return "詳細不明のエラーです。"
 
 
 class StableDiffusionAdapter(ImageGeneratorAdapter):

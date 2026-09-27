@@ -329,6 +329,20 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
         )
         try:
             async for progress in generator_service.generate_batch(gen_request):
+                # 調査用: 各画像の進捗・エラー種別をログに残す（APIキー値は含まれない）
+                if progress.error is not None:
+                    log_service.log(
+                        LogLevel.WARN,
+                        "main.generate",
+                        f"画像 {progress.error.index} でエラー"
+                        f"（type={progress.error.error_type}）: {progress.error.message}",
+                    )
+                else:
+                    log_service.log(
+                        LogLevel.INFO,
+                        "main.generate",
+                        f"画像を生成しました（{progress.completed}/{progress.total}）。",
+                    )
                 yield _sse_event(progress, event="progress")
             yield _sse_event({"status": "done"}, event="done")
         except Exception as exc:  # noqa: BLE001

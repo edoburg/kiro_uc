@@ -147,25 +147,28 @@ const AppInner: React.FC = () => {
           return;
         }
         // progress: 完了画像を反映する
+        // バックエンド（GenerationProgress を asdict）は snake_case で送る:
+        //   { completed, total, latest_image_path, error: { error_type, message } | null,
+        //     index, data_url }
         const data = payload.data as
           | {
               index?: number;
-              dataUrl?: string;
-              tempFilePath?: string;
-              status?: "pending" | "generating" | "done" | "error";
-              errorMessage?: string;
+              data_url?: string;
+              latest_image_path?: string;
+              error?: { error_type?: string; message?: string } | null;
             }
           | undefined;
         if (data && typeof data.index === "number") {
+          const hasError = data.error != null;
           dispatch({
             type: "UPSERT_GENERATED_IMAGE",
             image: {
               index: data.index,
-              dataUrl: data.dataUrl ?? "",
-              tempFilePath: data.tempFilePath ?? "",
-              status: data.status ?? "done",
-              ...(data.errorMessage
-                ? { errorMessage: data.errorMessage }
+              dataUrl: data.data_url ?? "",
+              tempFilePath: data.latest_image_path ?? "",
+              status: hasError ? "error" : "done",
+              ...(hasError && data.error?.message
+                ? { errorMessage: data.error.message }
                 : {}),
             },
           });
