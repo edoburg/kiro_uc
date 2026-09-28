@@ -214,6 +214,15 @@
   - 実アカウント・課金・審査申請を伴う操作には明確な注意書きを付ける。
   - 完了条件: 別の開発者が安全に同じ動作確認を再現できる。
 
+- [ ] **T-032: Kiro Hooksを現行仕様へ対応させて動作検証する**
+  - `.kiro/hooks/*.json` を現行の `version: "v1"` スキーマ、trigger、matcher、action仕様と照合する。
+  - `lint-on-save` の過剰エスケープされたmatcherを修正し、TypeScript／TSX／Pythonファイルの保存時に正しく発火させる。
+  - T-028で復旧する `npm run lint` と型チェックをHookから利用し、Python側は導入済みツールだけで検証できる構成にする。
+  - `run-tests-after-task` からWindowsで利用できないUnixコマンドを除き、プロジェクトの仮想環境を使ってVitest／pytestを実行する。
+  - `security-check-on-write` のmatcherを現行Kiroのツールカテゴリへ合わせ、書き込み操作に対して実際に発火することを確認する。
+  - SessionStart、PreToolUse、PostFileSave、PostTaskExecの各HookをKiro IDE上で実行し、成功・ブロック・失敗時の挙動を記録する。
+  - 完了条件: 4つのHookがWindows上のKiro IDEで意図したイベントに発火し、コマンドエラーなく期待する処理を完了できる。検証手順と結果がリポジトリ内に記録されている。
+
 ## 現在の既知状態
 
 - TypeScript型チェック `npx tsc --noEmit` は成功する。
