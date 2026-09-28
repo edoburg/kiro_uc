@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+import uuid
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, AsyncIterator, Literal, Optional
@@ -315,6 +317,12 @@ class GenerateRequest(ApiModel):
         "gpt-image-2.5-flare"
     )
     quality: Literal["auto", "low", "medium", "high", "xhigh", "max"] = "auto"
+    generation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
 
     @model_validator(mode="after")
     def validate_generation_range(self) -> "GenerateRequest":
@@ -336,6 +344,7 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
     """
     engine = config_service.load().ai_engine
     generator_service = _build_generator_service(engine)
+    generation_id = request.generation_id or f"generation-{uuid.uuid4().hex}"
 
     gen_request = GenerationRequestModel(
         prompt=request.prompt,
@@ -350,29 +359,27 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[str]:
         succeeded = 0
         failed = 0
+        started_at = time.perf_counter()
         log_service.log(
             LogLevel.INFO,
             "main.generate",
-            f"画像生成を開始しました（engine={engine}, count={request.count}）。",
+            f"[generation_id={generation_id}] 画像生成を開始しました"
+            f"（engine={engine}, total={request.count}, model={request.model}, "
+            f"quality={request.quality}）。",
         )
         try:
             async for progress in generator_service.generate_batch(gen_request):
-                # 調査用: 各画像の進捗・エラー種別をログに残す（APIキー値は含まれない）
                 if progress.error is not None:
                     failed += 1
                     log_service.log(
                         LogLevel.WARN,
                         "main.generate",
+                        f"[generation_id={generation_id}] "
                         f"画像 {progress.error.index} でエラー"
                         f"（type={progress.error.error_type}）: {progress.error.message}",
                     )
                 else:
                     succeeded += 1
-                    log_service.log(
-                        LogLevel.INFO,
-                        "main.generate",
-                        f"画像を生成しました（{progress.completed}/{progress.total}）。",
-                    )
                 yield _sse_event(progress, event="progress")
             status = (
                 "failed"
@@ -380,6 +387,14 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
                 else "partial"
                 if failed > 0
                 else "done"
+            )
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+            log_service.log(
+                LogLevel.INFO,
+                "main.generate",
+                f"[generation_id={generation_id}] 画像生成が完了しました"
+                f"（status={status}, total={request.count}, succeeded={succeeded}, "
+                f"failed={failed}, elapsed_ms={elapsed_ms}）。",
             )
             yield _sse_event(
                 {
@@ -391,7 +406,14 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
                 event="done",
             )
         except Exception as exc:  # noqa: BLE001
-            log_service.log(LogLevel.ERROR, "main.generate", str(exc))
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+            log_service.log(
+                LogLevel.ERROR,
+                "main.generate",
+                f"[generation_id={generation_id}] 画像生成中に致命的エラーが発生しました"
+                f"（total={request.count}, succeeded={succeeded}, failed={failed}, "
+                f"elapsed_ms={elapsed_ms}）: {exc}",
+            )
             yield _sse_event(
                 {
                     "status": "error",

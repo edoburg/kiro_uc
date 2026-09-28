@@ -497,7 +497,10 @@ ipcMain.handle(
  */
 ipcMain.handle("image:generate", async (event: IpcMainInvokeEvent, request: GenerationStartRequest) => {
   const streamId = nextStreamId("generate");
-  streamSse(event.sender, CH_GENERATE_PROGRESS, streamId, "/generate", request);
+  streamSse(event.sender, CH_GENERATE_PROGRESS, streamId, "/generate", {
+    ...request,
+    generationId: streamId,
+  });
   return { streamId };
 });
 

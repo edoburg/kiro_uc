@@ -241,6 +241,7 @@ def test_stream_and_upload_contracts_are_camel_case() -> None:
         {"quality": "ultra"},
         {"startIndex": -1},
         {"startIndex": 39, "count": 2},
+        {"generationId": "invalid id with spaces"},
     ],
 )
 def test_generate_rejects_invalid_requests(
@@ -317,6 +318,111 @@ def test_generate_preserves_index_and_reports_outcome(
     assert captured["request"].quality == "xhigh"
     assert '"index": 5' in response.text
     assert f'"status": "{expected_status}"' in response.text
+
+
+def test_generate_logs_summary_and_failures_with_generation_id(
+    monkeypatch, tmp_path: Path
+) -> None:
+    client = _isolated_client(monkeypatch, tmp_path)
+    records: list[tuple[object, str, str]] = []
+
+    class CapturingLogService:
+        def log(self, level, module, message):
+            records.append((level, module, message))
+
+    class FakeGenerator:
+        async def generate_batch(self, request):
+            yield GenerationProgress(
+                completed=1,
+                total=2,
+                latest_image_path="C:/tmp/0.png",
+                error=None,
+                index=0,
+                data_url="data:image/png;base64,AA==",
+            )
+            yield GenerationProgress(
+                completed=1,
+                total=2,
+                latest_image_path=None,
+                error=GenerationError(
+                    index=1,
+                    error_type="api_error",
+                    message="生成に失敗しました。",
+                ),
+                index=1,
+                data_url=None,
+            )
+
+    monkeypatch.setattr(main_module, "log_service", CapturingLogService())
+    monkeypatch.setattr(
+        main_module, "_build_generator_service", lambda _engine: FakeGenerator()
+    )
+    response = client.post(
+        "/generate",
+        json={
+            "prompt": "ねこ",
+            "count": 2,
+            "mode": "batch",
+            "startIndex": 0,
+            "model": "gpt-image-2.5-flare",
+            "quality": "high",
+            "generationId": "generate-test-42",
+        },
+    )
+
+    assert response.status_code == 200
+    generation_records = [record for record in records if record[1] == "main.generate"]
+    assert len(generation_records) == 3
+    assert all("generation_id=generate-test-42" in record[2] for record in generation_records)
+    assert sum(record[0] == main_module.LogLevel.INFO for record in generation_records) == 2
+    assert sum(record[0] == main_module.LogLevel.WARN for record in generation_records) == 1
+    assert not any("画像を生成しました" in record[2] for record in generation_records)
+    summary = generation_records[-1][2]
+    assert "total=2" in summary
+    assert "succeeded=1" in summary
+    assert "failed=1" in summary
+    assert "elapsed_ms=" in summary
+
+
+def test_generate_fatal_error_log_uses_same_generation_id(
+    monkeypatch, tmp_path: Path
+) -> None:
+    client = _isolated_client(monkeypatch, tmp_path)
+    records: list[tuple[object, str, str]] = []
+
+    class CapturingLogService:
+        def log(self, level, module, message):
+            records.append((level, module, message))
+
+    class FailingGenerator:
+        async def generate_batch(self, request):
+            if False:
+                yield None
+            raise RuntimeError("unexpected failure")
+
+    monkeypatch.setattr(main_module, "log_service", CapturingLogService())
+    monkeypatch.setattr(
+        main_module, "_build_generator_service", lambda _engine: FailingGenerator()
+    )
+    response = client.post(
+        "/generate",
+        json={
+            "prompt": "ねこ",
+            "count": 1,
+            "mode": "batch",
+            "startIndex": 0,
+            "model": "gpt-image-2.5-flare",
+            "quality": "auto",
+            "generationId": "generate-failure-7",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    error_records = [record for record in records if record[0] == main_module.LogLevel.ERROR]
+    assert len(error_records) == 1
+    assert "generation_id=generate-failure-7" in error_records[0][2]
+    assert "elapsed_ms=" in error_records[0][2]
 
 
 def test_upload_endpoint_reaches_service_and_streams_camel_case(
