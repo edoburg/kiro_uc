@@ -215,6 +215,7 @@
   - 完了条件: 別の開発者が安全に同じ動作確認を再現できる。
 
 - [ ] **T-032: Kiro Hooksを現行仕様へ対応させて動作検証する**
+  - 進捗（2026-09-29）: 現行v1仕様への移行とWindows用コマンドの直接検証は完了。Kiro IDE上の実発火確認待ち。手順と結果は `docs/kiro-hooks-verification.md` に記録した。
   - `.kiro/hooks/*.json` を現行の `version: "v1"` スキーマ、trigger、matcher、action仕様と照合する。
   - `lint-on-save` の過剰エスケープされたmatcherを修正し、TypeScript／TSX／Pythonファイルの保存時に正しく発火させる。
   - T-028で復旧する `npm run lint` と型チェックをHookから利用し、Python側は導入済みツールだけで検証できる構成にする。

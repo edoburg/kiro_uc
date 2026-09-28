@@ -4,11 +4,12 @@
     {
       "name": "Session Start Reminder",
       "trigger": "SessionStart",
-      "description": "セッション開始時にプロジェクトの技術スタックと規約をリマインドする",
+      "description": "セッション開始時にプロジェクト固有の実装ルールをコンテキストへ追加する",
       "action": {
         "type": "agent",
-        "prompt": "このセッションはLINEスタンプジェネレープロジェクトです。作業を始める前に以下を確認してください:\n\n**アーキテクチャ**\n- フロントエンド: Electron + React/TypeScript (Vite)\n- バックエンド: Python FastAPI (localhostの子プロセス)\n- IPC: `window.api` → `ipcMain.handle` → FastAPI の順でのみ通信する\n\n**主要な規約 (必ず守ること)**\n- TypeScriptのドメイン型は `src/types/index.ts` に一元管理する\n- Pythonのデータクラスは `backend/models.py` に一元管理する\n- APIキー・認証情報は `python-keyring` / `keytar` を使いOSキーチェーンに保存する (`config.json` やログに書かない)\n- UIテキスト・エラーメッセージはすべて**日本語**で記述する\n- バリデーションは副作用のない純粋関数として実装しプロパティテストの対象とする\n\n**LINEスタンプ規格**\n- スタンプ: 最大370×320px, 透過PNG, 1MB以下\n- メイン画像: 240×240px, PNG\n- サムネイル: 96×74px, PNG\n- アスペクト比: 37:32 (範囲外は中央クロップ)"
-      }
+        "prompt": "このワークスペースは、Electron + React/TypeScriptのフロントエンドとPython FastAPIバックエンドで構成されたLINEスタンプ生成アプリです。作業時は次を守ってください。TypeScriptの共有型はsrc/types、Pythonモデルはbackend/models.pyを基準にすること。Rendererからバックエンドへの通信はwindow.api、Electron IPC、FastAPIの既存経路を使うこと。APIキーやパスワードはOSキーチェーンに保存し、config.json、ソースコード、ログへ平文で書かないこと。UIテキストとユーザー向けエラーは日本語にすること。バリデーションは副作用のない関数として実装し、テストを追加すること。LINEスタンプ画像のサイズ、PNG形式、容量、余白の既存制約を維持すること。"
+      },
+      "enabled": true
     }
   ]
 }

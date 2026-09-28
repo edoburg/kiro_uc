@@ -4,12 +4,14 @@
     {
       "name": "Security Check on Write",
       "trigger": "PreToolUse",
-      "description": "ファイル書き込み前にAPIキー・パスワードの平文混入がないかセキュリティチェックする",
-      "matcher": "fs_write|str_replace|fs_append",
+      "description": "書き込みツールの入力を検査し、認証情報の平文書き込みをブロックする",
+      "matcher": "write",
       "action": {
-        "type": "agent",
-        "prompt": "Before proceeding with this file write operation, check the content being written for security violations specific to this project:\n\n1. **APIキー・パスワードの平文混入**: `api_key`, `password`, `secret`, `token` などの変数に実際の値（文字列リテラル）が代入されていないか確認する。環境変数参照やプレースホルダーは問題なし。\n2. **config.jsonへの認証情報書き込み**: `~/.line-stamp-gen/config.json` に `api_key` や `password` フィールドを書き込もうとしていないか確認する。\n3. **ログファイルへの認証情報出力**: ログ出力コードに認証情報の値が含まれていないか確認する。\n\n違反が見つかった場合は、書き込みをブロックしてユーザーに警告し、`python-keyring` / `keytar` を使った安全な保存方法を提案する。問題がなければそのまま処理を続行する。"
-      }
+        "type": "command",
+        "command": "node .kiro/hooks/scripts/security-check-on-write.cjs"
+      },
+      "timeout": 30,
+      "enabled": true
     }
   ]
 }
