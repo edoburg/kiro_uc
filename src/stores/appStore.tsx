@@ -92,6 +92,7 @@ export type AppAction =
   | { type: "UPSERT_GENERATED_IMAGE"; image: GeneratedImage }
   | { type: "DELETE_GENERATED_IMAGE"; index: number }
   | { type: "GENERATION_COMPLETE" }
+  | { type: "GENERATION_PARTIAL"; message: string }
   | { type: "GENERATION_FAILED"; message: string }
   | { type: "START_STAMP_SET_PROCESSING" }
   | { type: "SET_STAMP_SET"; stampSet: StampSet }
@@ -193,11 +194,20 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       };
 
     case "GENERATION_COMPLETE":
-      return { ...state, step: "preview", generationFailed: false };
+      return { ...state, step: "preview", generationFailed: false, error: null };
+
+    case "GENERATION_PARTIAL":
+      return {
+        ...state,
+        step: "preview",
+        generationFailed: false,
+        error: action.message,
+      };
 
     case "GENERATION_FAILED":
       return {
         ...state,
+        step: "preview",
         generationFailed: true,
         error: action.message,
       };

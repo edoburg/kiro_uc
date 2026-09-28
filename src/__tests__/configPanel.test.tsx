@@ -23,6 +23,7 @@ const baseConfig: Config = {
   aiEngine: "openai",
   outputDirectory: "/Users/name/line-stamps",
   openaiModel: "gpt-image-2.5-flare",
+  openaiQuality: "auto",
   sdEndpoint: "",
 };
 
@@ -79,7 +80,7 @@ describe("ConfigPanel", () => {
       expect(props.onSaveConfig).toHaveBeenCalledTimes(1);
       const savedConfig = vi.mocked(props.onSaveConfig).mock.calls[0][0] as Config;
       expect(Object.keys(savedConfig).sort()).toEqual(
-        ["aiEngine", "openaiModel", "outputDirectory", "sdEndpoint"].sort(),
+        ["aiEngine", "openaiModel", "openaiQuality", "outputDirectory", "sdEndpoint"].sort(),
       );
       // Config のいずれの値にも API キーが混入していない
       expect(JSON.stringify(savedConfig)).not.toContain(DUMMY_SECRET);
@@ -201,6 +202,22 @@ describe("ConfigPanel", () => {
       const savedConfig = vi.mocked(props.onSaveConfig).mock.calls[0][0] as Config;
       expect(savedConfig.openaiModel).toBe("gpt-image-2.5-sunburst");
     });
+
+    it("OpenAI quality 選択が保存する Config に反映される", async () => {
+      const props = makeProps();
+      render(<ConfigPanel {...props} />);
+
+      fireEvent.change(screen.getByLabelText("OpenAI 画像品質"), {
+        target: { value: "xhigh" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "設定を保存" }));
+
+      await waitFor(() => {
+        expect(props.onSaveConfig).toHaveBeenCalledTimes(1);
+      });
+      const savedConfig = vi.mocked(props.onSaveConfig).mock.calls[0][0] as Config;
+      expect(savedConfig.openaiQuality).toBe("xhigh");
+    });
   });
 
   describe("エクスポート（要件 6.5）", () => {
@@ -212,6 +229,7 @@ describe("ConfigPanel", () => {
         aiEngine: "openai",
         outputDirectory: "/Users/name/line-stamps",
         openaiModel: "gpt-image-2.5-flare",
+        openaiQuality: "auto",
         sdEndpoint: "",
       };
       const onExportConfig = vi.fn().mockResolvedValue(sanitized);
@@ -288,6 +306,7 @@ describe("ConfigPanel", () => {
         aiEngine: "openai",
         outputDirectory: "/tmp",
         openaiModel: "gpt-image-2.5-flare",
+        openaiQuality: "auto",
         sdEndpoint: "",
         api_key: "dummy-leak-value",
       });
@@ -307,6 +326,7 @@ describe("ConfigPanel", () => {
         aiEngine: "stable_diffusion",
         outputDirectory: "/tmp/out",
         openaiModel: "gpt-image-2.5-flare",
+        openaiQuality: "high",
         sdEndpoint: "http://127.0.0.1:7860",
       });
       selectImportFile(valid);
@@ -334,6 +354,7 @@ describe("ConfigPanel", () => {
           aiEngine: "openai",
           outputDirectory: "/tmp",
           openaiModel: "gpt-image-2.5-flare",
+          openaiQuality: "auto",
           sdEndpoint: "",
           [field]: "x",
         };
@@ -347,6 +368,7 @@ describe("ConfigPanel", () => {
           aiEngine: "midjourney",
           outputDirectory: "/tmp",
           openaiModel: "gpt-image-2.5-flare",
+          openaiQuality: "max",
           sdEndpoint: "",
         }),
       ).toBeNull();
@@ -360,6 +382,7 @@ describe("ConfigPanel", () => {
           aiEngine: "unknown",
           outputDirectory: "/tmp",
           openaiModel: "gpt-image-2.5-flare",
+          openaiQuality: "auto",
           sdEndpoint: "",
         }),
       ).not.toBeNull();

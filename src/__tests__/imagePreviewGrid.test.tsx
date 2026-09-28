@@ -293,6 +293,23 @@ describe("ImagePreviewGrid", () => {
       fireEvent.click(screen.getByRole("button", { name: "やり直す" }));
       expect(props.onRedo).toHaveBeenCalledTimes(1);
     });
+
+    it("生成中は承認操作と個別操作を無効化する", () => {
+      setup({
+        mode: "preview_approval",
+        images: [makeImage(0, "done")],
+        totalCount: 8,
+        isGenerating: true,
+      });
+
+      expect(
+        screen.queryByRole("button", {
+          name: "このスタイルで残りを生成する",
+        }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "画像 1 を削除" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "画像 1 を再生成" })).toBeDisabled();
+    });
   });
 
   describe("グリッド描画", () => {

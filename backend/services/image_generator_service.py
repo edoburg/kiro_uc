@@ -117,7 +117,12 @@ class ImageGeneratorAdapter(ABC):
 
     @abstractmethod
     async def _generate_one(
-        self, prompt: str, style: Optional[str], index: int
+        self,
+        prompt: str,
+        style: Optional[str],
+        index: int,
+        model: Optional[str] = None,
+        quality: Optional[str] = None,
     ) -> str:
         """
         1 枚の画像を生成し、生成された画像の一時ファイルパスを返す。
@@ -145,6 +150,8 @@ class ImageGeneratorAdapter(ABC):
         style: Optional[str],
         count: int,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+        model: Optional[str] = None,
+        quality: Optional[str] = None,
     ) -> AsyncIterator[GenerationProgress]:
         """
         指定枚数の画像を順次生成し、1 枚ごとに進捗を yield する。
@@ -169,7 +176,7 @@ class ImageGeneratorAdapter(ABC):
 
             try:
                 latest_path = await asyncio.wait_for(
-                    self._generate_one(prompt, style, index),
+                    self._generate_one(prompt, style, index, model, quality),
                     timeout=timeout_seconds,
                 )
             except asyncio.TimeoutError:
@@ -277,6 +284,7 @@ class OpenAIImageAdapter(ImageGeneratorAdapter):
     # AIエンジン共通の APIキーとして OS Keychain に "ai_api_key" で保存される。
     CREDENTIAL_KEY = "ai_api_key"
     DEFAULT_MODEL = "gpt-image-2.5-flare"
+    DEFAULT_QUALITY = "auto"
 
     #: gpt-image-2.5 の生成パラメータ（透過PNG・生成サイズ）
     BACKGROUND = "transparent"
@@ -289,13 +297,27 @@ class OpenAIImageAdapter(ImageGeneratorAdapter):
     _request_timeout = 150.0
 
     async def _generate_one(
-        self, prompt: str, style: Optional[str], index: int
+        self,
+        prompt: str,
+        style: Optional[str],
+        index: int,
+        model: Optional[str] = None,
+        quality: Optional[str] = None,
     ) -> str:
         # APIキーの存在確認（値はログ・例外に含めない）
         api_key = self._require_credential(self.CREDENTIAL_KEY)
-        model = self._config.load().openai_model or self.DEFAULT_MODEL
+        config = self._config.load()
+        selected_model = model or config.openai_model or self.DEFAULT_MODEL
+        selected_quality = quality or config.openai_quality or self.DEFAULT_QUALITY
 
-        image_bytes = await self._call_openai_api(api_key, model, prompt, style, index)
+        image_bytes = await self._call_openai_api(
+            api_key,
+            selected_model,
+            selected_quality,
+            prompt,
+            style,
+            index,
+        )
 
         path = self._new_temp_path(self.engine_name, index)
         with open(path, "wb") as fp:
@@ -306,6 +328,7 @@ class OpenAIImageAdapter(ImageGeneratorAdapter):
         self,
         api_key: str,
         model: str,
+        quality: str,
         prompt: str,
         style: Optional[str],
         index: int,
@@ -329,6 +352,7 @@ class OpenAIImageAdapter(ImageGeneratorAdapter):
             "prompt": full_prompt,
             "n": 1,
             "size": self.IMAGE_SIZE,
+            "quality": quality,
             "background": self.BACKGROUND,
             "output_format": self.OUTPUT_FORMAT,
         }
@@ -395,7 +419,12 @@ class StableDiffusionAdapter(ImageGeneratorAdapter):
     engine_name = "stable_diffusion"
 
     async def _generate_one(
-        self, prompt: str, style: Optional[str], index: int
+        self,
+        prompt: str,
+        style: Optional[str],
+        index: int,
+        model: Optional[str] = None,
+        quality: Optional[str] = None,
     ) -> str:
         endpoint = self._config.load().sd_endpoint
         if not endpoint:
@@ -435,7 +464,12 @@ class MidjourneyAdapter(ImageGeneratorAdapter):
     CREDENTIAL_KEY = "midjourney_api_key"
 
     async def _generate_one(
-        self, prompt: str, style: Optional[str], index: int
+        self,
+        prompt: str,
+        style: Optional[str],
+        index: int,
+        model: Optional[str] = None,
+        quality: Optional[str] = None,
     ) -> str:
         api_key = self._require_credential(self.CREDENTIAL_KEY)
 
@@ -496,8 +530,27 @@ class ImageGeneratorService:
             style=request.style,
             count=request.count,
             timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
+            model=request.model,
+            quality=request.quality,
         ):
-            yield progress
+            mapped_index = request.start_index + (progress.index or 0)
+            mapped_error = (
+                GenerationError(
+                    index=mapped_index,
+                    error_type=progress.error.error_type,
+                    message=progress.error.message,
+                )
+                if progress.error is not None
+                else None
+            )
+            yield GenerationProgress(
+                completed=progress.completed,
+                total=progress.total,
+                latest_image_path=progress.latest_image_path,
+                error=mapped_error,
+                index=mapped_index,
+                data_url=progress.data_url,
+            )
 
     async def generate_single(
         self, request: GenerationRequest, index: int
@@ -519,6 +572,8 @@ class ImageGeneratorService:
             style=request.style,
             count=1,
             timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
+            model=request.model,
+            quality=request.quality,
         ):
             if progress.error is not None:
                 # エラー情報のインデックスを呼び出し側の index に合わせる

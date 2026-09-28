@@ -35,6 +35,8 @@ export interface ImagePreviewGridProps {
   hasError?: boolean;
   /** 生成失敗時に表示するエラーメッセージ（日本語） */
   errorMessage?: string;
+  /** 生成要求が実行中か。多重開始を防ぐため操作を無効化する。 */
+  isGenerating?: boolean;
 }
 
 /**
@@ -62,12 +64,16 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
   onRetryGeneration,
   hasError = false,
   errorMessage,
+  isGenerating = false,
 }) => {
   // 完了枚数（進捗表示用、要件 2.5）
   const completedCount = images.filter((img) => img.status === "done").length;
   // プレビュー承認モードで承認待ちか（1 枚目のみ生成済みの状態、要件 2.2）
   const isAwaitingApproval =
-    mode === "preview_approval" && completedCount >= 1 && totalCount > 1;
+    !isGenerating &&
+    mode === "preview_approval" &&
+    completedCount >= 1 &&
+    completedCount < totalCount;
 
   // 生成全体が失敗した場合はエラー表示と再実行ボタンのみ（要件 2.6）
   if (hasError) {
@@ -123,6 +129,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
                   type="button"
                   className="regenerate-button"
                   onClick={() => onRegenerate(image.index)}
+                  disabled={isGenerating}
                   aria-label={`画像 ${image.index + 1} を再試行`}
                 >
                   再試行
@@ -140,6 +147,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
                     type="button"
                     className="delete-button"
                     onClick={() => onDelete(image.index)}
+                    disabled={isGenerating}
                     aria-label={`画像 ${image.index + 1} を削除`}
                   >
                     削除
@@ -148,6 +156,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
                     type="button"
                     className="regenerate-button"
                     onClick={() => onRegenerate(image.index)}
+                    disabled={isGenerating}
                     aria-label={`画像 ${image.index + 1} を再生成`}
                   >
                     再生成

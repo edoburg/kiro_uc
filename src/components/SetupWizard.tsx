@@ -70,6 +70,7 @@ function buildConfig(
     outputDirectory: outputDirectory.trim(),
     // 各エンジンの詳細設定は Config 画面で調整する想定。ここでは既定値を設定する。
     openaiModel: "gpt-image-2.5-flare",
+    openaiQuality: "auto",
     sdEndpoint: "http://127.0.0.1:7860",
   };
 }

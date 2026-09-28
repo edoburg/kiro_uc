@@ -178,16 +178,19 @@ class TestConfig:
         config = Config()
         assert config.ai_engine == "openai"
         assert config.openai_model == "gpt-image-2.5-flare"
+        assert config.openai_quality == "auto"
 
     def test_custom_values(self):
         config = Config(
             ai_engine="stable_diffusion",
             output_directory="/tmp/stamps",
             openai_model="gpt-image-2.5-sunburst",
+            openai_quality="max",
             sd_endpoint="http://localhost:7860",
         )
         assert config.ai_engine == "stable_diffusion"
         assert config.sd_endpoint == "http://localhost:7860"
+        assert config.openai_quality == "max"
 
     def test_no_sensitive_fields_in_config(self):
         """Config には APIキー・パスワードフィールドが存在しないことを確認する（セキュリティ保証）"""

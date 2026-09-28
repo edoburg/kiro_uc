@@ -6,11 +6,13 @@ import json
 from pathlib import Path
 from zipfile import ZipFile
 
+import pytest
 from fastapi.testclient import TestClient
 
 import backend.main as main_module
 from backend.api_contracts import to_api_payload
 from backend.models import (
+    GenerationError,
     GenerationProgress,
     ProcessedImageSet,
     UploadProgress,
@@ -25,6 +27,7 @@ CONFIG = {
     "aiEngine": "openai",
     "outputDirectory": "C:/line-stamps",
     "openaiModel": "gpt-image-2.5-flare",
+    "openaiQuality": "high",
     "sdEndpoint": "",
 }
 
@@ -72,6 +75,7 @@ def test_config_rejects_snake_case_missing_and_unknown_fields(
         "ai_engine": "openai",
         "output_directory": "C:/out",
         "openai_model": "gpt-image-2.5-flare",
+        "openai_quality": "high",
         "sd_endpoint": "",
     }
     assert client.post("/config", json=snake_case).status_code == 422
@@ -222,6 +226,97 @@ def test_stream_and_upload_contracts_are_camel_case() -> None:
         "retryCount": 0,
         "errorMessage": "認証に失敗しました。",
     }
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"prompt": " "},
+        {"prompt": "x" * 1001},
+        {"count": 0},
+        {"count": 41},
+        {"style": "unknown"},
+        {"mode": "unknown"},
+        {"model": "unknown"},
+        {"quality": "ultra"},
+        {"startIndex": -1},
+        {"startIndex": 39, "count": 2},
+    ],
+)
+def test_generate_rejects_invalid_requests(
+    monkeypatch, tmp_path: Path, override: dict
+) -> None:
+    client = _isolated_client(monkeypatch, tmp_path)
+    request = {
+        "prompt": "ねこ",
+        "count": 1,
+        "mode": "batch",
+        "startIndex": 0,
+        "model": "gpt-image-2.5-flare",
+        "quality": "auto",
+        **override,
+    }
+
+    assert client.post("/generate", json=request).status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("fail_indexes", "expected_status"),
+    [([], "done"), ([1], "partial"), ([0, 1], "failed")],
+)
+def test_generate_preserves_index_and_reports_outcome(
+    monkeypatch,
+    tmp_path: Path,
+    fail_indexes: list[int],
+    expected_status: str,
+) -> None:
+    client = _isolated_client(monkeypatch, tmp_path)
+    captured = {}
+
+    class FakeGenerator:
+        async def generate_batch(self, request):
+            captured["request"] = request
+            completed = 0
+            for local_index in range(request.count):
+                index = request.start_index + local_index
+                error = None
+                if local_index in fail_indexes:
+                    error = GenerationError(
+                        index=index,
+                        error_type="api_error",
+                        message="生成に失敗しました。",
+                    )
+                else:
+                    completed += 1
+                yield GenerationProgress(
+                    completed=completed,
+                    total=request.count,
+                    latest_image_path=None if error else f"C:/tmp/{index}.png",
+                    error=error,
+                    index=index,
+                    data_url=None if error else "data:image/png;base64,AA==",
+                )
+
+    monkeypatch.setattr(main_module, "_build_generator_service", lambda _engine: FakeGenerator())
+    response = client.post(
+        "/generate",
+        json={
+            "prompt": "ねこ",
+            "count": 2,
+            "style": "かわいい",
+            "mode": "batch",
+            "startIndex": 5,
+            "model": "gpt-image-2.5-sunburst",
+            "quality": "xhigh",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["request"].start_index == 5
+    assert captured["request"].model == "gpt-image-2.5-sunburst"
+    assert captured["request"].quality == "xhigh"
+    assert '"index": 5' in response.text
+    assert f'"status": "{expected_status}"' in response.text
 
 
 def test_upload_endpoint_reaches_service_and_streams_camel_case(

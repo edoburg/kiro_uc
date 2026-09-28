@@ -52,6 +52,7 @@ def _make_config_mock(
     credential: str | None = _PLACEHOLDER_API_KEY,
     sd_endpoint: str = "",
     openai_model: str = "gpt-image-2.5-flare",
+    openai_quality: str = "auto",
 ) -> MagicMock:
     """OS Keychain / 設定ファイルに触れないモック ConfigService を作る。"""
     config_mock = MagicMock()
@@ -60,6 +61,7 @@ def _make_config_mock(
         ai_engine="openai",
         output_directory="",
         openai_model=openai_model,
+        openai_quality=openai_quality,
         sd_endpoint=sd_endpoint,
     )
     return config_mock
@@ -187,9 +189,47 @@ class TestOpenAIImageAdapter:
             with patch.object(adapter, "_call_openai_api", new=call_api):
                 await _collect(adapter.generate(prompt="ねこ", style=None, count=1))
 
-            # _call_openai_api(api_key, model, prompt, style, index) の第 2 引数がモデル
+            # _call_openai_api(api_key, model, quality, prompt, style, index) の第 2 引数がモデル
             called_model = call_api.await_args.args[1]
             assert called_model == model
+
+    async def test_quality_from_request_is_passed_to_openai_api(self):
+        adapter = OpenAIImageAdapter(
+            config_service=_make_config_mock(openai_quality="low")
+        )
+        call_api = AsyncMock(return_value=b"\x89PNG-fake")
+        with patch.object(adapter, "_call_openai_api", new=call_api):
+            await _collect(
+                adapter.generate(
+                    prompt="ねこ", style=None, count=1, quality="xhigh"
+                )
+            )
+
+        assert call_api.await_args.args[2] == "xhigh"
+
+    async def test_quality_is_included_in_openai_http_payload(self):
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"data": [{"b64_json": "cG5n"}]}
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.post.return_value = response
+
+        with patch(
+            "backend.services.image_generator_service.httpx.AsyncClient",
+            return_value=client,
+        ):
+            result = await adapter._call_openai_api(
+                _PLACEHOLDER_API_KEY,
+                "gpt-image-2.5-flare",
+                "max",
+                "ねこ",
+                None,
+                0,
+            )
+
+        assert result == b"png"
+        assert client.post.await_args.kwargs["json"]["quality"] == "max"
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +400,18 @@ class TestImageGeneratorService:
         assert len(results) == 3
         assert all(p.error is None for p in results)
         assert results[-1].completed == 3
+
+    async def test_generate_batch_preserves_start_index(self):
+        adapter = OpenAIImageAdapter(config_service=_make_config_mock())
+        service = ImageGeneratorService(adapter=adapter)
+        request = GenerationRequest(prompt="ねこ", count=2, start_index=5)
+
+        with patch.object(
+            adapter, "_call_openai_api", new=AsyncMock(return_value=b"\x89PNG-fake")
+        ):
+            results = await _collect(service.generate_batch(request))
+
+        assert [progress.index for progress in results] == [5, 6]
 
     async def test_generate_single_api_error_returns_error_image(self):
         adapter = OpenAIImageAdapter(config_service=_make_config_mock())

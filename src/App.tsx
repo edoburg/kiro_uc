@@ -2,6 +2,7 @@ import React, { useCallback, useEffect } from "react";
 import type {
   Config,
   GenerationRequest,
+  GenerationStartRequest,
 } from "./types/index";
 import type {
   GenerationStreamPayload,
@@ -35,6 +36,10 @@ import {
   toStampImage,
 } from "./utils/stampSet";
 import { LINE_CREATORS_UPLOAD_ENABLED } from "./config/features";
+import {
+  classifyGenerationOutcome,
+  toGenerationStartRequest,
+} from "./utils/generationFlow";
 
 /**
  * window.api が存在するときのみ callback を実行する小さなガード。
@@ -85,6 +90,19 @@ const AppInner: React.FC = () => {
   );
   const [isExporting, setIsExporting] = React.useState(false);
   const [exportMessage, setExportMessage] = React.useState<string | null>(null);
+  const [isGenerationActive, setIsGenerationActive] = React.useState(false);
+  const generationUnsubscribeRef = React.useRef<(() => void) | null>(null);
+  const activeGenerationStreamIdRef = React.useRef<string | null>(null);
+  const pendingGenerationEventsRef = React.useRef<GenerationStreamPayload[]>([]);
+  const generationInFlightRef = React.useRef(false);
+  const generationRunRef = React.useRef<{
+    requiredSucceeded: number;
+    baselineSucceeded: number;
+  } | null>(null);
+  const uploadUnsubscribeRef = React.useRef<(() => void) | null>(null);
+  const activeUploadStreamIdRef = React.useRef<string | null>(null);
+  const pendingUploadEventsRef = React.useRef<UploadStreamPayload[]>([]);
+  const uploadInFlightRef = React.useRef(false);
 
   useEffect(() => {
     setExportMessage(null);
@@ -150,74 +168,170 @@ const AppInner: React.FC = () => {
 
   // --- 生成フロー ---
 
-  /** 生成進捗ストリーム（image:generate:progress）を購読し、画像・進捗を更新する（要件 2.5, 2.6） */
-  const subscribeGenerateProgress = useCallback(
-    (totalCount: number): (() => void) | undefined => {
-      const api = typeof window !== "undefined" ? window.api : undefined;
-      if (!api?.onGenerateProgress) {
-        return undefined;
+  const cleanupGenerationStream = useCallback((updateState = true): void => {
+    generationUnsubscribeRef.current?.();
+    generationUnsubscribeRef.current = null;
+    activeGenerationStreamIdRef.current = null;
+    pendingGenerationEventsRef.current = [];
+    generationRunRef.current = null;
+    generationInFlightRef.current = false;
+    if (updateState) {
+      setIsGenerationActive(false);
+    }
+  }, []);
+
+  const cleanupUploadStream = useCallback((): void => {
+    uploadUnsubscribeRef.current?.();
+    uploadUnsubscribeRef.current = null;
+    activeUploadStreamIdRef.current = null;
+    pendingUploadEventsRef.current = [];
+    uploadInFlightRef.current = false;
+  }, []);
+
+  useEffect(
+    () => () => {
+      cleanupGenerationStream(false);
+      cleanupUploadStream();
+    },
+    [cleanupGenerationStream, cleanupUploadStream],
+  );
+
+  /** 現在の streamId に属する生成イベントだけを状態へ反映する。 */
+  const processGenerationPayload = useCallback(
+    (payload: GenerationStreamPayload): void => {
+      if (payload.streamId !== activeGenerationStreamIdRef.current) {
+        return;
       }
-      const handler = (payload: GenerationStreamPayload): void => {
-        if (payload.event === "error") {
+
+      const run = generationRunRef.current;
+      if (payload.event === "progress") {
+        const data = payload.data;
+        const hasError = data.error != null;
+        dispatch({
+          type: "UPSERT_GENERATED_IMAGE",
+          image: {
+            index: data.index,
+            dataUrl: data.dataUrl ?? "",
+            tempFilePath: data.latestImagePath ?? "",
+            status: hasError ? "error" : "done",
+            ...(hasError && data.error?.message
+              ? { errorMessage: data.error.message }
+              : {}),
+          },
+        });
+        return;
+      }
+
+      if (payload.event === "error") {
+        const message = payload.data.message ?? "画像の生成に失敗しました。";
+        dispatch({
+          type: (run?.baselineSucceeded ?? 0) > 0
+            ? "GENERATION_PARTIAL"
+            : "GENERATION_FAILED",
+          message,
+        });
+        cleanupGenerationStream();
+        return;
+      }
+
+      if (payload.event === "done") {
+        const outcome = classifyGenerationOutcome(
+          payload.data,
+          run?.baselineSucceeded ?? 0,
+          run?.requiredSucceeded ?? payload.data.total,
+        );
+        if (outcome === "failed") {
           dispatch({
             type: "GENERATION_FAILED",
-            message: payload.data.message ?? "画像の生成に失敗しました。",
+            message: "すべての画像生成に失敗しました。もう一度お試しください。",
           });
-          return;
-        }
-        if (payload.event === "done") {
-          dispatch({ type: "GENERATION_COMPLETE" });
-          return;
-        }
-        if (payload.event === "progress") {
-          const data = payload.data;
-          const hasError = data.error != null;
+        } else if (outcome === "partial") {
           dispatch({
-            type: "UPSERT_GENERATED_IMAGE",
-            image: {
-              index: data.index,
-              dataUrl: data.dataUrl ?? "",
-              tempFilePath: data.latestImagePath ?? "",
-              status: hasError ? "error" : "done",
-              ...(hasError && data.error?.message
-                ? { errorMessage: data.error.message }
-                : {}),
-            },
+            type: "GENERATION_PARTIAL",
+            message: "一部の画像を生成できませんでした。失敗した画像だけ再試行してください。",
           });
+        } else {
+          dispatch({ type: "GENERATION_COMPLETE" });
         }
-      };
-      const unsubscribe = api.onGenerateProgress(handler);
-      // totalCount は将来的な進捗率算出用に保持（現状は ImagePreviewGrid へ props で渡す）
-      void totalCount;
-      return typeof unsubscribe === "function" ? unsubscribe : undefined;
+        cleanupGenerationStream();
+      }
     },
-    [dispatch],
+    [cleanupGenerationStream, dispatch],
+  );
+
+  /** 購読を先に開始し、返却された streamId と一致するイベントだけを処理する。 */
+  const startGeneration = useCallback(
+    async (
+      request: GenerationStartRequest,
+      requiredSucceeded: number,
+      baselineSucceeded: number,
+    ): Promise<void> => {
+      if (generationInFlightRef.current) {
+        return;
+      }
+
+      cleanupGenerationStream();
+      generationInFlightRef.current = true;
+      setIsGenerationActive(true);
+      generationRunRef.current = { requiredSucceeded, baselineSucceeded };
+
+      const api = typeof window !== "undefined" ? window.api : undefined;
+      if (!api?.image?.generate || !api.onGenerateProgress) {
+        dispatch({
+          type:
+            baselineSucceeded > 0
+              ? "GENERATION_PARTIAL"
+              : "GENERATION_FAILED",
+          message: "生成 API を利用できません。",
+        });
+        cleanupGenerationStream();
+        return;
+      }
+
+      generationUnsubscribeRef.current = api.onGenerateProgress((payload) => {
+        if (activeGenerationStreamIdRef.current === null) {
+          pendingGenerationEventsRef.current.push(payload);
+          return;
+        }
+        processGenerationPayload(payload);
+      });
+
+      try {
+        const handle = await api.image.generate(request);
+        activeGenerationStreamIdRef.current = handle.streamId;
+        const pending = pendingGenerationEventsRef.current;
+        pendingGenerationEventsRef.current = [];
+        pending.forEach(processGenerationPayload);
+      } catch (err) {
+        dispatch({
+          type:
+            baselineSucceeded > 0
+              ? "GENERATION_PARTIAL"
+              : "GENERATION_FAILED",
+          message: toJapaneseError(err, "画像の生成に失敗しました。"),
+        });
+        cleanupGenerationStream();
+      }
+    },
+    [cleanupGenerationStream, dispatch, processGenerationPayload],
   );
 
   const handleGenerate = useCallback(
     (request: GenerationRequest): void => {
+      if (generationInFlightRef.current) {
+        return;
+      }
       // プロンプト履歴へ保存（要件 1.7）
       addHistory(request.prompt);
       dispatch({ type: "START_GENERATION", request });
-
-      // 進捗購読を開始してから生成をリクエストする
-      subscribeGenerateProgress(request.count);
-
-      const call = withApi((api) =>
-        api.image?.generate
-          ? api.image.generate(request)
-          : Promise.reject(new Error("生成 API を利用できません。")),
+      const count = request.mode === "preview_approval" ? 1 : request.count;
+      void startGeneration(
+        toGenerationStartRequest(request, state.config, { count, startIndex: 0 }),
+        count,
+        0,
       );
-      if (call) {
-        call.catch((err) => {
-          dispatch({
-            type: "GENERATION_FAILED",
-            message: toJapaneseError(err, "画像の生成に失敗しました。"),
-          });
-        });
-      }
     },
-    [addHistory, dispatch, subscribeGenerateProgress],
+    [addHistory, dispatch, startGeneration, state.config],
   );
 
   const handleHistorySelect = useCallback(
@@ -244,9 +358,15 @@ const AppInner: React.FC = () => {
   const handleRegenerateImage = useCallback(
     (index: number): void => {
       // 個別再生成: 元の Prompt・スタイルで 1 枚を再生成する（要件 2.9）
-      if (!state.currentRequest) {
+      if (!state.currentRequest || generationInFlightRef.current) {
         return;
       }
+      const baselineSucceeded = state.generatedImages.filter(
+        (image) => image.index !== index && image.status === "done",
+      ).length;
+      const isApprovalPreviewOnly =
+        state.currentRequest.mode === "preview_approval" &&
+        state.generatedImages.every((image) => image.index === 0);
       dispatch({
         type: "UPSERT_GENERATED_IMAGE",
         image: {
@@ -256,38 +376,49 @@ const AppInner: React.FC = () => {
           status: "generating",
         },
       });
-      const call = withApi((api) =>
-        api.image?.generate
-          ? api.image.generate({ ...state.currentRequest!, count: 8 })
-          : undefined,
+      void startGeneration(
+        toGenerationStartRequest(state.currentRequest, state.config, {
+          count: 1,
+          startIndex: index,
+          mode: "batch",
+        }),
+        isApprovalPreviewOnly ? 1 : state.currentRequest.count,
+        baselineSucceeded,
       );
-      call?.catch((err) => {
-        setError(toJapaneseError(err, "画像の再生成に失敗しました。"));
-      });
     },
-    [dispatch, setError, state.currentRequest],
+    [
+      dispatch,
+      startGeneration,
+      state.config,
+      state.currentRequest,
+      state.generatedImages,
+    ],
   );
 
   const handleApproveStyle = useCallback(
     (remainingCount: number): void => {
       // プレビュー承認モード: 残り n-1 枚を生成する（要件 2.3）
-      if (!state.currentRequest) {
+      if (
+        !state.currentRequest ||
+        generationInFlightRef.current ||
+        remainingCount <= 0
+      ) {
         return;
       }
-      const call = withApi((api) =>
-        api.image?.generate
-          ? api.image.generate({
-              ...state.currentRequest!,
-              count: remainingCount as GenerationRequest["count"],
-              mode: "batch",
-            })
-          : undefined,
+      const baselineSucceeded = state.generatedImages.filter(
+        (image) => image.status === "done",
+      ).length;
+      void startGeneration(
+        toGenerationStartRequest(state.currentRequest, state.config, {
+          count: remainingCount,
+          startIndex: 1,
+          mode: "batch",
+        }),
+        state.currentRequest.count,
+        baselineSucceeded,
       );
-      call?.catch((err) => {
-        setError(toJapaneseError(err, "残りの画像の生成に失敗しました。"));
-      });
     },
-    [setError, state.currentRequest],
+    [startGeneration, state.config, state.currentRequest, state.generatedImages],
   );
 
   const handleRedo = useCallback((): void => {
@@ -307,6 +438,13 @@ const AppInner: React.FC = () => {
     }
     if (state.generatedImages.length === 0) {
       setError("変換できる生成画像がありません。");
+      return;
+    }
+    if (
+      state.generatedImages.length !== state.currentRequest?.count ||
+      state.generatedImages.some((image) => image.status !== "done")
+    ) {
+      setError("未完了または生成に失敗した画像があります。再試行してから進んでください。");
       return;
     }
 
@@ -439,7 +577,7 @@ const AppInner: React.FC = () => {
       setError("LINE Creators Marketへの自動アップロード機能は現在保留中です。");
       return;
     }
-    if (!state.stampSet) {
+    if (!state.stampSet || uploadInFlightRef.current) {
       return;
     }
     const stampSet = state.stampSet;
@@ -452,50 +590,85 @@ const AppInner: React.FC = () => {
     }
     dispatch({ type: "START_UPLOAD" });
 
-    // アップロード進捗ストリームを購読する（要件 5.2）
     const api = typeof window !== "undefined" ? window.api : undefined;
-    if (api?.onUploadProgress) {
-      api.onUploadProgress((payload: UploadStreamPayload) => {
-        if (payload.event === "error") {
-          dispatch({
-            type: "SET_UPLOAD_RESULT",
-            result: toUploadErrorResult(payload.data),
-          });
-          return;
-        }
-        if (payload.event === "done") {
-          dispatch({
-            type: "SET_UPLOAD_RESULT",
-            result: toUploadResult(payload.data),
-          });
-          return;
-        }
-        if (payload.event === "progress") {
-          dispatch({
-            type: "SET_UPLOAD_PROGRESS",
-            progress: payload.data,
-          });
-        }
-      });
-    }
-
-    const call = withApi((apiRef) =>
-      apiRef.upload?.start
-        ? apiRef.upload.start(toUploadStartRequest(stampSet))
-        : undefined,
-    );
-    call?.catch((err) => {
+    if (!api?.onUploadProgress || !api.upload?.start) {
       dispatch({
         type: "SET_UPLOAD_RESULT",
         result: {
           success: false,
           errorType: "unknown",
           retryCount: 0,
-          errorMessage: toJapaneseError(err, "アップロードに失敗しました。"),
+          errorMessage: "アップロード API を利用できません。",
         },
       });
+      return;
+    }
+
+    cleanupUploadStream();
+    uploadInFlightRef.current = true;
+    const processPayload = (payload: UploadStreamPayload): void => {
+      if (payload.streamId !== activeUploadStreamIdRef.current) {
+        return;
+      }
+      if (payload.event === "error") {
+        dispatch({
+          type: "SET_UPLOAD_RESULT",
+          result: toUploadErrorResult(payload.data),
+        });
+        cleanupUploadStream();
+        return;
+      }
+      if (payload.event === "done") {
+        dispatch({
+          type: "SET_UPLOAD_RESULT",
+          result: toUploadResult(payload.data),
+        });
+        cleanupUploadStream();
+        return;
+      }
+      if (payload.event === "progress") {
+        dispatch({
+          type: "SET_UPLOAD_PROGRESS",
+          progress: payload.data,
+        });
+      }
+    };
+
+    uploadUnsubscribeRef.current = api.onUploadProgress((payload) => {
+      if (activeUploadStreamIdRef.current === null) {
+        pendingUploadEventsRef.current.push(payload);
+        return;
+      }
+      processPayload(payload);
     });
-  }, [dispatch, setError, state.lineCredentialsConfigured, state.stampSet]);
+
+    void api.upload.start(toUploadStartRequest(stampSet)).then(
+      (handle) => {
+        activeUploadStreamIdRef.current = handle.streamId;
+        const pending = pendingUploadEventsRef.current;
+        pendingUploadEventsRef.current = [];
+        pending.forEach(processPayload);
+      },
+      (err) => {
+        dispatch({
+          type: "SET_UPLOAD_RESULT",
+          result: {
+            success: false,
+            errorType: "unknown",
+            retryCount: 0,
+            errorMessage: toJapaneseError(err, "アップロードに失敗しました。"),
+          },
+        });
+        cleanupUploadStream();
+      },
+    );
+  }, [
+    cleanupUploadStream,
+    dispatch,
+    setError,
+    state.lineCredentialsConfigured,
+    state.stampSet,
+  ]);
 
   // --- 設定（ConfigPanel / SetupWizard） ---
 
@@ -633,6 +806,11 @@ const AppInner: React.FC = () => {
   // --- レンダリング ---
 
   const totalCount = state.currentRequest?.count ?? 0;
+  const canBuildStampSet =
+    !isGenerationActive &&
+    totalCount > 0 &&
+    state.generatedImages.length === totalCount &&
+    state.generatedImages.every((image) => image.status === "done");
 
   return (
     <div className="app">
@@ -744,6 +922,7 @@ const AppInner: React.FC = () => {
                 onRedo={handleRedo}
                 onRetryGeneration={handleRetryGeneration}
                 hasError={state.generationFailed}
+                isGenerating={isGenerationActive}
                 {...(state.error ? { errorMessage: state.error } : {})}
               />
               {state.step === "preview" &&
@@ -756,7 +935,7 @@ const AppInner: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => void handleBuildStampSet()}
-                      disabled={state.generatedImages.length === 0}
+                      disabled={!canBuildStampSet}
                     >
                       スタンプセットを編集する
                     </button>

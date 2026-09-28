@@ -33,12 +33,12 @@ import asyncio
 import json
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from backend.models import (
     Config,
@@ -49,6 +49,7 @@ from backend.models import (
     UploadProgress,
 )
 from backend.api_contracts import (
+    ApiModel,
     ConfigPayload,
     ExportRequestPayload,
     ProcessRequestPayload,
@@ -192,6 +193,7 @@ async def save_config(config: ConfigRequest) -> dict[str, str]:
                 ai_engine=config.ai_engine,
                 output_directory=config.output_directory,
                 openai_model=config.openai_model,
+                openai_quality=config.openai_quality,
                 sd_endpoint=config.sd_endpoint,
             )
         )
@@ -234,6 +236,7 @@ async def import_config(data: ConfigRequest) -> dict[str, str]:
                 ai_engine=data.ai_engine,
                 output_directory=data.output_directory,
                 openai_model=data.openai_model,
+                openai_quality=data.openai_quality,
                 sd_endpoint=data.sd_endpoint,
             )
         )
@@ -302,11 +305,24 @@ async def get_credential_status(key: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-class GenerateRequest(BaseModel):
-    prompt: str
-    count: int = 8
-    style: str | None = None
-    mode: str = "batch"
+class GenerateRequest(ApiModel):
+    prompt: str = Field(min_length=1, max_length=1000)
+    count: int = Field(default=8, ge=1, le=40)
+    style: Literal["かわいい", "クール", "ゆるい", "リアル"] | None = None
+    mode: Literal["batch", "preview_approval"] = "batch"
+    start_index: int = Field(default=0, ge=0, le=39)
+    model: Literal["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] = (
+        "gpt-image-2.5-flare"
+    )
+    quality: Literal["auto", "low", "medium", "high", "xhigh", "max"] = "auto"
+
+    @model_validator(mode="after")
+    def validate_generation_range(self) -> "GenerateRequest":
+        if not self.prompt.strip():
+            raise ValueError("プロンプトを入力してください。")
+        if self.start_index + self.count > 40:
+            raise ValueError("生成画像のindexは0〜39の範囲にしてください。")
+        return self
 
 
 @app.post("/generate")
@@ -326,9 +342,14 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
         count=request.count,
         style=request.style,
         mode=request.mode,
+        start_index=request.start_index,
+        model=request.model,
+        quality=request.quality,
     )
 
     async def event_stream() -> AsyncIterator[str]:
+        succeeded = 0
+        failed = 0
         log_service.log(
             LogLevel.INFO,
             "main.generate",
@@ -338,6 +359,7 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
             async for progress in generator_service.generate_batch(gen_request):
                 # 調査用: 各画像の進捗・エラー種別をログに残す（APIキー値は含まれない）
                 if progress.error is not None:
+                    failed += 1
                     log_service.log(
                         LogLevel.WARN,
                         "main.generate",
@@ -345,13 +367,29 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
                         f"（type={progress.error.error_type}）: {progress.error.message}",
                     )
                 else:
+                    succeeded += 1
                     log_service.log(
                         LogLevel.INFO,
                         "main.generate",
                         f"画像を生成しました（{progress.completed}/{progress.total}）。",
                     )
                 yield _sse_event(progress, event="progress")
-            yield _sse_event({"status": "done"}, event="done")
+            status = (
+                "failed"
+                if succeeded == 0
+                else "partial"
+                if failed > 0
+                else "done"
+            )
+            yield _sse_event(
+                {
+                    "status": status,
+                    "total": request.count,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                },
+                event="done",
+            )
         except Exception as exc:  # noqa: BLE001
             log_service.log(LogLevel.ERROR, "main.generate", str(exc))
             yield _sse_event(

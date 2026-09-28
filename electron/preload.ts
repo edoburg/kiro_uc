@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
 import type {
-  GenerationRequest,
+  GenerationStartRequest,
   Config,
   LogEntry,
   ProcessedImageSet,
@@ -89,7 +89,7 @@ const api = {
      * AI 画像生成を開始する。戻り値は購読用の streamId。
      * 進捗は onGenerateProgress で購読する。
      */
-    generate: (request: GenerationRequest): Promise<StreamHandle> =>
+    generate: (request: GenerationStartRequest): Promise<StreamHandle> =>
       ipcRenderer.invoke("image:generate", request),
     /**
      * 画像処理（LINE規格変換）を実行する（同期レスポンス）。

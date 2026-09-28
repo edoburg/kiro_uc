@@ -15,6 +15,19 @@ export type GenerationStyle = "かわいい" | "クール" | "ゆるい" | "リ�
 /** 生成モード */
 export type GenerationMode = "batch" | "preview_approval";
 
+/** OpenAI GPT Image 2.5 の生成品質。 */
+export type OpenAIImageQuality =
+  | "auto"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export type OpenAIImageModel =
+  | "gpt-image-2.5-flare"
+  | "gpt-image-2.5-sunburst";
+
 /** AI 画像生成リクエスト */
 export interface GenerationRequest {
   /** 生成条件を記述する自然言語テキスト（最大 1000 文字） */
@@ -25,6 +38,14 @@ export interface GenerationRequest {
   style?: GenerationStyle;
   /** 生成モード（一括 or プレビュー承認） */
   mode: GenerationMode;
+}
+
+/** 1回のバックエンド生成処理に渡す内部要求。 */
+export interface GenerationStartRequest extends Omit<GenerationRequest, "count"> {
+  count: number;
+  startIndex: number;
+  model: OpenAIImageModel;
+  quality: OpenAIImageQuality;
 }
 
 // --- 生成画像 ---
@@ -142,7 +163,9 @@ export interface Config {
   /** 画像出力先ディレクトリ */
   outputDirectory: string;
   /** OpenAI 画像生成モデル名（gpt-image-2.5-flare: 速度優先 / gpt-image-2.5-sunburst: 品質優先） */
-  openaiModel: "gpt-image-2.5-flare" | "gpt-image-2.5-sunburst";
+  openaiModel: OpenAIImageModel;
+  /** OpenAI GPT Image 2.5 の生成品質 */
+  openaiQuality: OpenAIImageQuality;
   /** Stable Diffusion WebUI エンドポイント URL */
   sdEndpoint: string;
 }

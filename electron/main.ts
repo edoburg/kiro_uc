@@ -12,7 +12,7 @@ import * as path from "path";
 import * as http from "http";
 import type {
   Config,
-  GenerationRequest,
+  GenerationStartRequest,
   ProcessedImageSet,
 } from "../src/types/index";
 import type {
@@ -495,7 +495,7 @@ ipcMain.handle(
  * AI 画像生成を開始する。進捗は CH_GENERATE_PROGRESS チャネルへ push される。
  * invoke の戻り値は購読用の streamId。
  */
-ipcMain.handle("image:generate", async (event: IpcMainInvokeEvent, request: GenerationRequest) => {
+ipcMain.handle("image:generate", async (event: IpcMainInvokeEvent, request: GenerationStartRequest) => {
   const streamId = nextStreamId("generate");
   streamSse(event.sender, CH_GENERATE_PROGRESS, streamId, "/generate", request);
   return { streamId };

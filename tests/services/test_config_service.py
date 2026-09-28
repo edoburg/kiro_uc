@@ -53,9 +53,10 @@ def _make_service(tmp_dir: str) -> ConfigService:
 # 有効な Config を生成するストラテジ（全フィールド文字列）
 _valid_config = st.builds(
     Config,
-    ai_engine=st.text(max_size=30),
+    ai_engine=st.sampled_from(["openai", "stable_diffusion", "midjourney"]),
     output_directory=st.text(max_size=60),
-    openai_model=st.text(max_size=30),
+    openai_model=st.sampled_from(["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]),
+    openai_quality=st.sampled_from(["auto", "low", "medium", "high", "xhigh", "max"]),
     sd_endpoint=st.text(max_size=60),
 )
 
@@ -72,7 +73,7 @@ _non_string_value = st.one_of(
 
 # 既知の Config フィールド名（少なくとも 1 つを不正な値で埋めることで検証を失敗させる）
 _config_field = st.sampled_from(
-    ["ai_engine", "output_directory", "openai_model", "sd_endpoint"]
+    ["ai_engine", "output_directory", "openai_model", "openai_quality", "sd_endpoint"]
 )
 
 
@@ -152,6 +153,7 @@ class TestImportDataPreservation:
             ai_engine="stable_diffusion",
             output_directory="/tmp/out",
             openai_model="gpt-image-2.5-flare",
+            openai_quality="medium",
             sd_endpoint="http://localhost:7860",
         )
         service.save(original)

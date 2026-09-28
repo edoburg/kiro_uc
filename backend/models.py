@@ -164,6 +164,15 @@ class GenerationRequest:
     mode: str = "batch"
     """生成モード（'batch' | 'preview_approval'）"""
 
+    start_index: int = 0
+    """結果へ付与する先頭インデックス"""
+
+    model: str = "gpt-image-2.5-flare"
+    """OpenAI画像生成モデル"""
+
+    quality: str = "auto"
+    """OpenAI画像生成品質"""
+
 
 @dataclass
 class GeneratedImage:
@@ -292,6 +301,9 @@ class Config:
 
     openai_model: str = "gpt-image-2.5-flare"
     """OpenAI 画像生成モデル名 ('gpt-image-2.5-flare' | 'gpt-image-2.5-sunburst')"""
+
+    openai_quality: str = "auto"
+    """OpenAI GPT Image 2.5 の生成品質"""
 
     sd_endpoint: str = ""
     """Stable Diffusion WebUI エンドポイント URL"""

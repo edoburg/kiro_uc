@@ -13,7 +13,7 @@ import json
 import os
 from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import keyring
 from pydantic import BaseModel, ValidationError
@@ -32,9 +32,14 @@ class ConfigSchema(BaseModel):
     フィールドは backend.models.Config のデータクラスと対応させる。
     """
 
-    ai_engine: str = "openai"
+    ai_engine: Literal["openai", "stable_diffusion", "midjourney"] = "openai"
     output_directory: str = ""
-    openai_model: str = "gpt-image-2.5-flare"
+    openai_model: Literal[
+        "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"
+    ] = "gpt-image-2.5-flare"
+    openai_quality: Literal[
+        "auto", "low", "medium", "high", "xhigh", "max"
+    ] = "auto"
     sd_endpoint: str = ""
 
 
@@ -107,6 +112,7 @@ class ConfigService:
             ai_engine=schema.ai_engine,
             output_directory=schema.output_directory,
             openai_model=schema.openai_model,
+            openai_quality=schema.openai_quality,
             sd_endpoint=schema.sd_endpoint,
         )
 
@@ -166,6 +172,7 @@ class ConfigService:
             ai_engine=schema.ai_engine,
             output_directory=schema.output_directory,
             openai_model=schema.openai_model,
+            openai_quality=schema.openai_quality,
             sd_endpoint=schema.sd_endpoint,
         )
         self.save(new_config)

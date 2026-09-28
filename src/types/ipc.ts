@@ -2,7 +2,7 @@
 
 import type {
   Config,
-  GenerationRequest,
+  GenerationStartRequest,
   LogEntry,
   ProcessedImageSet,
   StampSet,
@@ -74,6 +74,13 @@ export interface GenerationProgressPayload {
   } | null;
 }
 
+export interface GenerationDonePayload {
+  status: "done" | "partial" | "failed";
+  total: number;
+  succeeded: number;
+  failed: number;
+}
+
 export interface UploadProgressPayload {
   phase:
     | "login"
@@ -125,7 +132,7 @@ export interface StreamErrorPayload {
 
 export type GenerationStreamPayload =
   | { streamId: string; event: "progress"; data: GenerationProgressPayload }
-  | { streamId: string; event: "done"; data: { status: string } }
+  | { streamId: string; event: "done"; data: GenerationDonePayload }
   | { streamId: string; event: "error"; data: StreamErrorPayload }
   | { streamId: string; event: "message"; data: unknown };
 
@@ -151,7 +158,7 @@ export interface RendererApi {
     get: (key: string) => Promise<CredentialStatusResponse>;
   };
   image: {
-    generate: (request: GenerationRequest) => Promise<StreamHandle>;
+    generate: (request: GenerationStartRequest) => Promise<StreamHandle>;
     process: (sourcePath: string) => Promise<ProcessedImageSet>;
   };
   archive: {

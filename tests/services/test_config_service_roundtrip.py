@@ -56,7 +56,8 @@ _valid_config = st.builds(
     Config,
     ai_engine=st.sampled_from(["openai", "stable_diffusion", "midjourney"]),
     output_directory=st.text(max_size=200),
-    openai_model=st.text(min_size=1, max_size=50),
+    openai_model=st.sampled_from(["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]),
+    openai_quality=st.sampled_from(["auto", "low", "medium", "high", "xhigh", "max"]),
     sd_endpoint=st.text(max_size=200),
 )
 

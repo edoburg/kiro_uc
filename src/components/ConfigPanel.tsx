@@ -30,6 +30,18 @@ const OPENAI_MODEL_OPTIONS: ReadonlyArray<{
   { value: "gpt-image-2.5-sunburst", label: "gpt-image-2.5-sunburst（品質優先）" },
 ];
 
+const OPENAI_QUALITY_OPTIONS: ReadonlyArray<{
+  value: Config["openaiQuality"];
+  label: string;
+}> = [
+  { value: "auto", label: "自動" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+  { value: "xhigh", label: "最高" },
+  { value: "max", label: "最大" },
+];
+
 /** Config オブジェクトに含めてはならない、認証情報系のフィールド名（要件 6.5） */
 const SENSITIVE_FIELDS: ReadonlyArray<string> = [
   "api_key",
@@ -111,6 +123,20 @@ export function validateImportedConfig(data: unknown): string | null {
   if (typeof obj.openaiModel !== "string") {
     return "OpenAI モデルの設定値が不正です。";
   }
+  const validQualities: ReadonlyArray<Config["openaiQuality"]> = [
+    "auto",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ];
+  if (
+    typeof obj.openaiQuality !== "string" ||
+    !validQualities.includes(obj.openaiQuality as Config["openaiQuality"])
+  ) {
+    return "OpenAI 画像品質の設定値が不正です。";
+  }
   if (typeof obj.sdEndpoint !== "string") {
     return "Stable Diffusion エンドポイントの設定値が不正です。";
   }
@@ -123,6 +149,7 @@ const EMPTY_CONFIG: Config = {
   aiEngine: "openai",
   outputDirectory: "",
   openaiModel: "gpt-image-2.5-flare",
+  openaiQuality: "auto",
   sdEndpoint: "",
 };
 
@@ -287,6 +314,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
         aiEngine: data.aiEngine,
         outputDirectory: data.outputDirectory,
         openaiModel: data.openaiModel,
+        openaiQuality: data.openaiQuality,
         sdEndpoint: data.sdEndpoint,
       });
       setSuccessMessage("設定をインポートしました");
@@ -410,6 +438,31 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="config-panel__field">
+        <label htmlFor="config-openai-quality">OpenAI 画像品質</label>
+        <select
+          id="config-openai-quality"
+          name="openaiQuality"
+          value={form.openaiQuality}
+          onChange={(e) =>
+            updateField(
+              "openaiQuality",
+              e.target.value as Config["openaiQuality"],
+            )
+          }
+          disabled={form.aiEngine !== "openai"}
+        >
+          {OPENAI_QUALITY_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <p className="config-panel__note">
+          品質を上げるほど生成時間とAPI利用量が増える場合があります。
+        </p>
       </div>
 
       {/* --- Stable Diffusion エンドポイント（aiEngine が stable_diffusion のとき有効） --- */}

@@ -44,9 +44,10 @@ class ApiModel(BaseModel):
 
 
 class ConfigPayload(ApiModel):
-    ai_engine: str
+    ai_engine: Literal["openai", "stable_diffusion", "midjourney"]
     output_directory: str
-    openai_model: str
+    openai_model: Literal["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]
+    openai_quality: Literal["auto", "low", "medium", "high", "xhigh", "max"]
     sd_endpoint: str
 
 
