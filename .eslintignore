@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-electron/
+coverage/
+.venv/
+.pytest_cache/
+.hypothesis/

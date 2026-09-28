@@ -192,7 +192,7 @@
 
 ## P2: 品質・テスト・開発環境
 
-- [ ] **T-028: ESLint設定を追加して `npm run lint` を復旧する**
+- [x] **T-028: ESLint設定を追加して `npm run lint` を復旧する**
   - TypeScript、React、テストファイルに適した設定を追加する。
   - 生成物、`node_modules`、Electronビルド成果物を除外する。
   - 完了条件: `npm run lint` が成功する。
@@ -226,6 +226,6 @@
 ## 現在の既知状態
 
 - TypeScript型チェック `npx tsc --noEmit` は成功する。
-- `npm run lint` はESLint設定ファイルがないため失敗する。
+- `npm run lint` と `npx tsc --noEmit` は成功する。
 - Pythonとフロントエンドの単体テストは存在するが、App／Electron IPC／FastAPIを通した統合テストは不足している。
 - Stable DiffusionとMidjourneyの実API呼び出しは未実装である。対応する場合は別途タスク化する。

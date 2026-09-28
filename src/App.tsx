@@ -459,7 +459,12 @@ const AppInner: React.FC = () => {
         `${result.failedCount}枚の画像を変換できませんでした。編集画面から再試行または差し替えを行ってください。`,
       );
     }
-  }, [dispatch, setError, state.generatedImages]);
+  }, [
+    dispatch,
+    setError,
+    state.currentRequest?.count,
+    state.generatedImages,
+  ]);
 
   const handleTitleChange = useCallback(
     (title: string): void => {
