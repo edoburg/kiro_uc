@@ -72,4 +72,4 @@ node .kiro/hooks/scripts/verify-hooks.cjs --full
 
 ## IDE検証状況
 
-設定ファイルと各コマンドの直接実行は確認済み。現在の自動操作環境からはKiro IDEウィンドウへ接続できず、`kiro-cli`もPATH上に存在しないため、上記7手順によるIDEイベントの実発火確認は未実施である。IDE確認が完了するまではTASKS.mdのT-032を未完了として扱う。
+設定ファイルと各コマンドの直接実行に加え、2026-09-30にKiro IDEのOutputパネルで `Lint on Save` の発火と結果表示を確認した。利用者によるIDE確認が完了したため、TASKS.mdのT-032を完了とした。
