@@ -1,6 +1,6 @@
 # Kiro Hooks 動作検証
 
-最終更新: 2026-09-29
+最終更新: 2026-09-30
 
 ## 対応した現行仕様
 
@@ -72,4 +72,10 @@ node .kiro/hooks/scripts/verify-hooks.cjs --full
 
 ## IDE検証状況
 
-設定ファイルと各コマンドの直接実行に加え、2026-09-30にKiro IDEのOutputパネルで `Lint on Save` の発火と結果表示を確認した。利用者によるIDE確認が完了したため、TASKS.mdのT-032を完了とした。
+設定ファイルと各コマンドの直接実行に加え、2026-09-30にKiro IDE上で `Lint on Save` の発火を確認した。
+
+- 発火はログファイル `.kiro/hooks/logs/lint-on-save.log` で確認した。TS/TSX（ESLint・`tsc --noEmit`）とPython（`py_compile`）の成功・失敗がいずれも記録された。
+- OutputパネルとチャットにはLintの結果が表示されない。
+- `PostFileSave` はエージェントによるファイル変更でのみ発火し、エディタでの手動保存では発火しない。
+
+利用者によるIDE確認が完了したため、TASKS.mdのT-032を完了とした。
