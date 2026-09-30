@@ -63,8 +63,8 @@ node .kiro/hooks/scripts/verify-hooks.cjs --full
 
 1. Kiro IDE 1.xでこのワークスペースを開き、Agent Hooksに4つのHookが有効状態で表示され、スキーマ警告がないことを確認する。
 2. 新しいチャットセッションを開始する。`Session Start Reminder` が実行され、KiroのHookログに成功が記録されることを確認する。
-3. KiroへTSまたはTSXファイルの安全な編集を依頼する。保存後に `Lint on Save` が発火し、ESLintと型チェックの成功メッセージが表示されることを確認する。
-4. KiroへPythonファイルの安全な編集を依頼する。保存後に同じHookが発火し、Python構文チェックの成功メッセージが表示されることを確認する。
+3. KiroへTSまたはTSXファイルの安全な編集を依頼する。エージェントの変更後に `Lint on Save` が発火し、ESLintと型チェックの結果が `.kiro/hooks/logs/lint-on-save.log` に記録されることを確認する（`PostFileSave` はエージェントによる変更で発火し、エディタでの手動保存では発火しない）。
+4. KiroへPythonファイルの安全な編集を依頼する。エージェントの変更後に同じHookが発火し、Python構文チェックの結果がログへ記録されることを確認する。
 5. 通常の内容を書き込む操作で `Security Check on Write` が発火し、書き込みが継続されることを確認する。
 6. `sk-` の後ろに半角英字 `a` を24文字連結した実在しないダミー値を、`api_key` へ直接代入するファイル作成を依頼する。Hookが終了コード2となり、ファイルが作成されないことを確認する。実際の認証情報は使用しない。
 7. Kiro Specのテスト用タスクを完了状態へ進める。`Run Tests After Task` が発火し、Vitestとpytestが成功することを確認する。
@@ -72,10 +72,34 @@ node .kiro/hooks/scripts/verify-hooks.cjs --full
 
 ## IDE検証状況
 
-設定ファイルと各コマンドの直接実行に加え、2026-09-30にKiro IDE上で `Lint on Save` の発火を確認した。
+設定ファイルと各コマンドの直接実行に加え、Kiro IDE上で4つのHookすべての実発火を確認した。利用者によるIDE確認が完了したため、TASKS.mdのT-032を完了とした。
+
+## IDE実発火確認結果
+
+環境: Windows、Kiro IDE
+
+| Hook | trigger | 確認内容 | 結果 |
+| --- | --- | --- | --- |
+| Session Start Reminder | `SessionStart` | Agent Hooksに4つが有効表示（スキーマ警告なし）。新規チャットセッション開始でagent promptが実行され、実装ルールが会話へ注入される | 成功 |
+| Lint on Save | `PostFileSave` | TS/TSX/Pythonの変更で発火し、`.kiro/hooks/logs/lint-on-save.log` に成功・失敗を記録 | 成功 |
+| Security Check on Write | `PreToolUse` (`write`) | 通常書き込みは継続、認証情報の平文書き込みは終了コード2でブロック | 成功 |
+| Run Tests After Task | `PostTaskExec` | Specタスクを完了状態へ進めるとVitestとpytestが実行される | 成功 |
+
+### Lint on Save（`PostFileSave`）
 
 - 発火はログファイル `.kiro/hooks/logs/lint-on-save.log` で確認した。TS/TSX（ESLint・`tsc --noEmit`）とPython（`py_compile`）の成功・失敗がいずれも記録された。
-- OutputパネルとチャットにはLintの結果が表示されない。
-- `PostFileSave` はエージェントによるファイル変更でのみ発火し、エディタでの手動保存では発火しない。
+  - TypeScript: `src/types/index.ts` に未使用変数を仕込むと型チェックが `TS6133` を終了コード2で検出。修正後は成功。
+  - Python: `backend/main.py` に意図的な構文エラーを仕込むと `py_compile` が `SyntaxError`（終了コード1）を検出。修正後は成功。
+  - 相対パス・絶対パスのどちらでも正しく発火した。
+- OutputパネルとチャットにはLintの結果が表示されない。ログファイルとAgent Hooksパネルの実行履歴で確認する。
+- **`PostFileSave` はエージェントによるファイル変更でのみ発火し、エディタでの手動保存では発火しない。**
 
-利用者によるIDE確認が完了したため、TASKS.mdのT-032を完了とした。
+### Security Check on Write（`PreToolUse`）
+
+- 通常ケース: 認証情報を含まない書き込みはブロックされず継続した。
+- ブロックケース: `api_key` へ実在しないダミー値（`sk-` + 半角英字 `a`×24）を代入する書き込みは、`PreToolUse` Hookが実行前にインターセプトし、「認証情報または秘密鍵と思われる平文を検出したため、書き込みをブロックしました」というメッセージとともに終了コード2でブロックした。対象ファイルは作成されなかった。実在の認証情報は使用していない。
+
+### 補足
+
+- 検証には一時ディレクトリ `tmp_hook_check/`（`.gitignore` 済み）と、既存ファイルへの一時的な変更を用いた。
+- command型Hookの標準出力はチャット本文へは表示されず、Kiroの出力パネル（Kiro / Kiro Hooksチャンネル）とAgent Hooksパネルの実行履歴、およびLint on Saveのログファイルで確認できる。
