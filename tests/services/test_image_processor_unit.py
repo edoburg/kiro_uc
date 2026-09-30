@@ -148,3 +148,26 @@ async def test_process_image_outputs_have_transparency_rgba(service, tmp_path):
     for path in (result.stamp_path, result.main_image_path, result.thumbnail_path):
         _, _, mode = _open_size_and_mode(path)
         assert mode == "RGBA", f"透過が保持されていません: {path} (mode={mode})"
+
+
+async def test_stamp_and_thumbnail_keep_top_and_bottom_of_source(service, tmp_path):
+    """正方形画像の上下端を切らず、サムネイルの余白を透明にする。"""
+    source_path = tmp_path / "edge-colors.png"
+    with Image.new("RGBA", (400, 400), (0, 180, 0, 255)) as source:
+        source.paste((255, 0, 0, 255), (0, 0, 400, 24))
+        source.paste((0, 0, 255, 255), (0, 376, 400, 400))
+        source.save(source_path)
+
+    result = await service.process_image(str(source_path))
+
+    with Image.open(result.stamp_path) as stamp:
+        assert stamp.size == (320, 320)
+        assert stamp.getpixel((160, 0)) == (255, 0, 0, 255)
+        assert stamp.getpixel((160, 319)) == (0, 0, 255, 255)
+
+    with Image.open(result.thumbnail_path) as thumbnail:
+        assert thumbnail.size == (96, 74)
+        assert thumbnail.getpixel((48, 0)) == (255, 0, 0, 255)
+        assert thumbnail.getpixel((48, 73)) == (0, 0, 255, 255)
+        assert thumbnail.getpixel((0, 37))[3] == 0
+        assert thumbnail.getpixel((95, 37))[3] == 0

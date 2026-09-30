@@ -73,7 +73,7 @@
 2. WHEN ユーザーがLINE規格への変換を指示する, THE Image_Processor SHALL メイン画像（W240px × H240px、PNG）およびサムネイル画像（W96px × H74px、PNG）を各Generated_Imageから生成する
 3. WHEN Image_Processor が変換後の画像を生成する, THE Image_Processor SHALL 各画像のファイルサイズが1MB以下であることを検証し、超過する場合はPNG圧縮レベルを段階的に上げて1MB以下に収める
 4. WHEN Image_Processor が変換を完了する, THE App SHALL Validation_Resultとして各画像のサイズ・フォーマット・ファイルサイズの適合状況をユーザーに表示する
-5. IF Generated_ImageのアスペクトレシオがLINEスタンプ規格のアスペクト比（37:32）の範囲外である, THEN THE Image_Processor SHALL 元画像の中央を基点とした中央クロップにより37:32に最も近いアスペクト比に調整し、クロップ後の画像をリサイズに使用する
+5. WHEN Image_Processor がスタンプ画像とサムネイル画像を生成する, THE Image_Processor SHALL 元画像を切り抜かずにアスペクト比を保って縮小し、サムネイル画像では不足する領域を透明な余白で補う
 6. WHEN Image_Processor が1枚のGenerated_Imageに対してスタンプ画像・メイン画像・サムネイル画像の3種類を生成する, THE Image_Processor SHALL 3種類全ての生成を10秒以内に完了する
 7. IF Image_Processor が変換中にファイル読み込みエラーまたは書き込みエラーを検出する, THEN THE App SHALL 他の画像の変換処理を継続しながら、エラーが発生した画像インデックスとエラー内容をエラー検出と同時に即時ユーザーに表示する
 8. IF Image_Processor がPNG圧縮を最大レベルまで適用してもファイルサイズが1MB以下にならない, THEN THE App SHALL 該当画像のValidation_Resultに「ファイルサイズ超過（調整不可）」を記録し、ユーザーに差し替えを促すメッセージを表示する

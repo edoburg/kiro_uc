@@ -7,7 +7,9 @@ ImageProcessorService — LINE 規格への画像変換・バリデーション�
   - サムネイル画像: W96  × H74px、PNG
 
 処理方針:
-  - 入力画像のアスペクト比がスタンプ規格（37:32）の範囲外の場合は中央クロップで調整する
+  - スタンプ画像は元画像全体をアスペクト比を保って最大サイズ内に縮小する
+  - サムネイル画像は元画像全体を縮小し、透明な余白を足して規定サイズにする
+  - メイン画像のみ正方形に中央クロップする
   - PNG 圧縮レベルを段階的に上げて 1MB 以下に収め、超過時は file_size_exceeded=True をセットする
   - バッチ変換では個別画像のエラーを記録しつつ、他画像の変換を継続する
 
@@ -133,7 +135,7 @@ class ImageProcessorService:
         画像をスタンプ規格（W370 × H320px 以内、透過 PNG）に変換する
         （Requirements 3.1, 3.5）。
 
-        アスペクト比を 37:32 に中央クロップした後、最大サイズ以内に縮小する。
+        元画像を切り抜かず、アスペクト比を保って最大サイズ以内に縮小する。
         透過を保持するため RGBA へ変換する。
 
         Args:
@@ -142,8 +144,7 @@ class ImageProcessorService:
         Returns:
             スタンプ規格に調整済みの RGBA 画像
         """
-        cropped = self.center_crop_to_aspect(img, self.ASPECT_W, self.ASPECT_H)
-        resized = self._fit_within(cropped, self.STAMP_MAX_W, self.STAMP_MAX_H)
+        resized = self._fit_within(img, self.STAMP_MAX_W, self.STAMP_MAX_H)
         return self._to_rgba(resized)
 
     def _make_main(self, img: Image.Image) -> Image.Image:
@@ -153,10 +154,18 @@ class ImageProcessorService:
         return self._to_rgba(resized)
 
     def _make_thumbnail(self, img: Image.Image) -> Image.Image:
-        """サムネイル画像（W96 × H74px、PNG）を生成する（Requirements 3.2）。"""
-        cropped = self.center_crop_to_aspect(img, self.THUMB_W, self.THUMB_H)
-        resized = cropped.resize((self.THUMB_W, self.THUMB_H), Image.LANCZOS)
-        return self._to_rgba(resized)
+        """画像全体を縮小して透明な 96×74px の中央に配置する（Requirements 3.2）。"""
+        src_w, src_h = img.size
+        scale = min(self.THUMB_W / src_w, self.THUMB_H / src_h)
+        width = min(self.THUMB_W, max(1, round(src_w * scale)))
+        height = min(self.THUMB_H, max(1, round(src_h * scale)))
+        resized = self._to_rgba(img).resize((width, height), Image.LANCZOS)
+        canvas = Image.new("RGBA", (self.THUMB_W, self.THUMB_H), (0, 0, 0, 0))
+        canvas.alpha_composite(
+            resized,
+            dest=((self.THUMB_W - width) // 2, (self.THUMB_H - height) // 2),
+        )
+        return canvas
 
     # ------------------------------------------------------------------
     # 圧縮 / バリデーション

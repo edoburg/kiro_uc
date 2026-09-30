@@ -1,7 +1,7 @@
 """
 ImageProcessorService の中央クロップ プロパティテスト
 
-Property 7: 中央クロップ後のアスペクト比（要件 3.5）
+メイン画像の生成で使う中央クロップ関数のテスト。
 
 center_crop_to_aspect(img, target_w, target_h) の出力画像について、
   - 出力のアスペクト比が target_w:target_h に（整数ピクセル丸めの許容誤差内で）一致する
@@ -28,7 +28,7 @@ _TARGET_RATIOS = st.sampled_from(
 )
 
 
-# Feature: line-stamp-generator, Property 7: 中央クロップ後の出力アスペクト比が目標比率に一致し、クロップは中央基点である
+# 中央クロップ後の出力アスペクト比が目標比率に一致し、クロップは中央基点である
 @given(
     src_w=st.integers(min_value=1, max_value=2000),
     src_h=st.integers(min_value=1, max_value=2000),
@@ -40,7 +40,6 @@ def test_center_crop_matches_target_aspect_and_is_centered(
 ) -> None:
     """center_crop_to_aspect の出力は目標アスペクト比に一致し、中央基点でクロップされる。
 
-    **Validates: Requirements 3.5**
     """
     target_w, target_h = target
     service = ImageProcessorService()

@@ -185,10 +185,10 @@ OpenAI の画像生成 API（`POST /v1/images/generations`）を呼び出す。�
 | `background` | `transparent` | LINEスタンプは透過必須。`transparent` 使用時は `output_format` を `png`/`webp` にする必要がある |
 | `output_format` | `png` | 透過PNGを直接取得（後段の Pillow 変換前提を満たす） |
 | `quality` | `auto`（デフォルト） | `low`/`medium`/`high`/`xhigh`/`max`/`auto` から選択可能 |
-| `size` | `1024x1024` | 生成後に ImageProcessorService が LINE規格へリサイズ・中央クロップ |
+| `size` | `1024x1024` | 生成後に ImageProcessorService が LINE規格へリサイズ。メイン画像のみ中央クロップ |
 
 - APIキーは OS Keychain の `openai_api_key` から取得し、リクエストヘッダにのみ使用する。ログ・例外・Config ファイルには一切含めない。
-- `gpt-image-2.5` は `background="transparent"` で透過PNGを直接生成できるため、従来の DALL·E 3（透過非対応）に比べて LINEスタンプ用途との親和性が高い。ただし ImageProcessorService による規格変換（370×320px以内・1MB以下・アスペクト比37:32の中央クロップ）は引き続き必須とする。
+- `gpt-image-2.5` は `background="transparent"` で透過PNGを直接生成できるため、従来の DALL·E 3（透過非対応）に比べて LINEスタンプ用途との親和性が高い。ImageProcessorService は元画像全体を残してスタンプ画像を370×320px以内に縮小し、サムネイル画像は透明な余白で96×74pxに調整する。
 
 #### ImageProcessorService
 
@@ -448,9 +448,9 @@ class LineCredentials:
 
 ---
 
-### Property 7: 中央クロップ後のアスペクト比
+### Property 7: スタンプ画像・サムネイル画像の切り抜き防止
 
-*任意の* アスペクト比を持つ入力画像に対して、`center_crop_to_aspect` 関数を適用した後の画像の幅と高さの比は、目標アスペクト比（370:320）に等しいか、元の画像が既に目標比率以内であればそのままのサイズが保持される。
+*任意の* アスペクト比を持つ入力画像に対して、スタンプ画像とサムネイル画像は元画像全体をアスペクト比を保って収める。サムネイル画像は96×74pxの透明キャンバスに中央配置する。
 
 **Validates: Requirements 3.5**
 
