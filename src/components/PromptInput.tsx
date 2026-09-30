@@ -42,7 +42,7 @@ export interface PromptInputProps {
  *
  * ユーザーのプロンプト入力フォームと送信コントロールを提供する。
  * - リアルタイム文字数表示（要件 1.2）
- * - 1000 文字超過でエラー表示・送信ボタン無効化（要件 1.2）
+ * - 1000 文字超過でエラー表示・送信ボタン非表示（要件 1.2）
  * - 空文字・空白のみで「条件を入力してください」（要件 1.3）
  * - 枚数セレクタ（デフォルト 8）（要件 1.4）
  * - スタイルセレクタ（未選択可）（要件 1.5）
@@ -69,8 +69,6 @@ const PromptInput: React.FC<PromptInputProps> = ({
   const submitError = useMemo(() => validatePrompt(prompt), [prompt]);
 
   const isOverLength = lengthError !== null;
-  // 送信ボタンは文字数超過時に無効化（要件 1.2）
-  const isSubmitDisabled = isOverLength;
 
   // 表示するエラーメッセージ: 超過は常時、空文字は送信試行後に表示
   const displayedError = isOverLength
@@ -207,13 +205,11 @@ const PromptInput: React.FC<PromptInputProps> = ({
         </div>
       )}
 
-      <button
-        type="submit"
-        className="prompt-input__submit"
-        disabled={isSubmitDisabled}
-      >
-        生成する
-      </button>
+      {submitError === null && (
+        <button type="submit" className="prompt-input__submit">
+          生成する
+        </button>
+      )}
     </form>
   );
 };

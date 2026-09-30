@@ -166,6 +166,45 @@ h2 {
   display: block;
 }
 
+.prompt-input textarea,
+.stamp-set-editor__field textarea {
+  width: 100%;
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  resize: vertical;
+}
+
+.prompt-input__radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+}
+
+.prompt-input__radio input {
+  width: auto;
+  margin: 0;
+  flex: none;
+}
+
+.prompt-input__submit {
+  width: 100%;
+  margin-top: 16px;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 700;
+}
+
+.prompt-input__submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
 .config-panel__field,
 .log-viewer__filter-field {
   margin-bottom: 16px;
@@ -331,6 +370,68 @@ h2 {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface);
+}
+
+.stamp-set-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: var(--gap);
+  list-style: none;
+  padding: 0;
+  margin: 24px 0;
+}
+
+.stamp-set-editor__item {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.stamp-set-editor__item-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+
+.stamp-set-editor__previews {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stamp-set-editor__preview-group {
+  min-width: 0;
+  margin: 0;
+}
+
+.stamp-set-editor__preview-frame {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+}
+
+.stamp-set-editor__preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.stamp-set-editor__preview-group figcaption {
+  margin-top: 6px;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.stamp-set-editor__validation {
+  margin: 12px 0;
 }
 
 .stamp-set-editor__set-validation {

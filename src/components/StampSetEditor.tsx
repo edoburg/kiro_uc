@@ -319,22 +319,38 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
           const errorId = `stamp-replace-error-${index}`;
           return (
             <li key={index} className="stamp-set-editor__item">
+              <h3 className="stamp-set-editor__item-title">スタンプ {index + 1}</h3>
               <div className="stamp-set-editor__previews">
-                <img
-                  className="stamp-set-editor__preview stamp-set-editor__preview--stamp"
-                  src={image.stampPreviewUrl || image.stampPath}
-                  alt={`スタンプ画像 ${index + 1}`}
-                />
-                <img
-                  className="stamp-set-editor__preview stamp-set-editor__preview--main"
-                  src={image.mainImagePreviewUrl || image.mainImagePath}
-                  alt={`メイン画像 ${index + 1}`}
-                />
-                <img
-                  className="stamp-set-editor__preview stamp-set-editor__preview--thumb"
-                  src={image.thumbnailPreviewUrl || image.thumbnailPath}
-                  alt={`サムネイル画像 ${index + 1}`}
-                />
+                <figure className="stamp-set-editor__preview-group">
+                  <div className="stamp-set-editor__preview-frame">
+                    <img
+                      className="stamp-set-editor__preview stamp-set-editor__preview--stamp"
+                      src={image.stampPreviewUrl || image.stampPath}
+                      alt={`スタンプ画像 ${index + 1}`}
+                    />
+                  </div>
+                  <figcaption>スタンプ画像</figcaption>
+                </figure>
+                <figure className="stamp-set-editor__preview-group">
+                  <div className="stamp-set-editor__preview-frame">
+                    <img
+                      className="stamp-set-editor__preview stamp-set-editor__preview--main"
+                      src={image.mainImagePreviewUrl || image.mainImagePath}
+                      alt={`メイン画像 ${index + 1}`}
+                    />
+                  </div>
+                  <figcaption>メイン画像</figcaption>
+                </figure>
+                <figure className="stamp-set-editor__preview-group">
+                  <div className="stamp-set-editor__preview-frame">
+                    <img
+                      className="stamp-set-editor__preview stamp-set-editor__preview--thumb"
+                      src={image.thumbnailPreviewUrl || image.thumbnailPath}
+                      alt={`サムネイル画像 ${index + 1}`}
+                    />
+                  </div>
+                  <figcaption>サムネイル画像</figcaption>
+                </figure>
               </div>
 
               {/* LINE 規格バリデーション結果の表示（要件 3.4） */}
