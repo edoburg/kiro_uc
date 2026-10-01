@@ -525,6 +525,34 @@ class ImageGeneratorService:
         Yields:
             GenerationProgress: 各画像の生成進捗
         """
+        if request.items is not None:
+            from backend.services.stamp_prompt import build_stamp_prompt
+
+            for offset in range(request.count):
+                position = request.start_index + offset
+                prompt = build_stamp_prompt(request.prompt, request.items[position])
+                async for progress in self._adapter.generate(
+                    prompt=prompt,
+                    style=request.style,
+                    count=1,
+                    timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
+                    model=request.model,
+                    quality=request.quality,
+                ):
+                    mapped_error = (
+                        GenerationError(index=position, error_type=progress.error.error_type, message=progress.error.message)
+                        if progress.error is not None else None
+                    )
+                    yield GenerationProgress(
+                        completed=offset + 1,
+                        total=request.count,
+                        latest_image_path=progress.latest_image_path,
+                        error=mapped_error,
+                        index=position,
+                        data_url=progress.data_url,
+                    )
+            return
+
         async for progress in self._adapter.generate(
             prompt=request.prompt,
             style=request.style,
@@ -567,8 +595,15 @@ class ImageGeneratorService:
             生成結果を表す GeneratedImage（失敗時は status='error' かつ error を保持）
         """
         # count=1 で 1 回だけ生成し、その結果を GeneratedImage に変換する
+        prompt = request.prompt
+        if request.items is not None:
+            from backend.services.stamp_prompt import build_stamp_prompt
+
+            if index < 0 or index >= len(request.items):
+                raise ValueError("生成対象の位置が企画の範囲外です。")
+            prompt = build_stamp_prompt(request.prompt, request.items[index])
         async for progress in self._adapter.generate(
-            prompt=request.prompt,
+            prompt=prompt,
             style=request.style,
             count=1,
             timeout_seconds=DEFAULT_TIMEOUT_SECONDS,

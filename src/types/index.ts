@@ -14,6 +14,15 @@ export type GenerationStyle = "かわいい" | "クール" | "ゆるい" | "リ�
 
 /** 生成モード */
 export type GenerationMode = "batch" | "preview_approval";
+export type StampTheme = "daily" | "work";
+export interface StampPlanItem {
+  id: string;
+  position: number;
+  meaning: string;
+  expression: string;
+  pose: string;
+  prop: string;
+}
 
 /** OpenAI GPT Image 2.5 の生成品質。 */
 export type OpenAIImageQuality =
@@ -38,6 +47,8 @@ export interface GenerationRequest {
   style?: GenerationStyle;
   /** 生成モード（一括 or プレビュー承認） */
   mode: GenerationMode;
+  theme?: StampTheme;
+  items?: StampPlanItem[];
 }
 
 /** 1回のバックエンド生成処理に渡す内部要求。 */
@@ -54,6 +65,7 @@ export interface GenerationStartRequest extends Omit<GenerationRequest, "count">
 export interface GeneratedImage {
   /** スタンプセット内のインデックス（0 始まり） */
   index: number;
+  itemId?: string;
   /** プレビュー表示用の base64 data URL */
   dataUrl: string;
   /** バックエンド側の一時ファイルパス */

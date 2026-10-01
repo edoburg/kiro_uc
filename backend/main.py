@@ -307,6 +307,15 @@ async def get_credential_status(key: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+class StampPlanItemPayload(ApiModel):
+    id: str = Field(min_length=1, max_length=100)
+    position: int = Field(ge=0, le=39)
+    meaning: str = Field(min_length=1, max_length=100)
+    expression: str = Field(min_length=1, max_length=100)
+    pose: str = Field(min_length=1, max_length=100)
+    prop: str = Field(default="", max_length=100)
+
+
 class GenerateRequest(ApiModel):
     prompt: str = Field(min_length=1, max_length=1000)
     count: int = Field(default=8, ge=1, le=40)
@@ -317,6 +326,8 @@ class GenerateRequest(ApiModel):
         "gpt-image-2.5-flare"
     )
     quality: Literal["auto", "low", "medium", "high", "xhigh", "max"] = "auto"
+    theme: Literal["daily", "work"] | None = None
+    items: list[StampPlanItemPayload] | None = None
     generation_id: str | None = Field(
         default=None,
         min_length=1,
@@ -330,6 +341,27 @@ class GenerateRequest(ApiModel):
             raise ValueError("プロンプトを入力してください。")
         if self.start_index + self.count > 40:
             raise ValueError("生成画像のindexは0〜39の範囲にしてください。")
+        if (self.theme is None) != (self.items is None):
+            raise ValueError("テーマと企画項目を両方指定してください。")
+        if self.items is not None:
+            if len(self.items) not in (8, 16, 24, 32, 40):
+                raise ValueError("企画の件数は8・16・24・32・40件にしてください。")
+            if self.start_index + self.count > len(self.items):
+                raise ValueError("生成対象の位置が企画の範囲外です。")
+            ids: set[str] = set()
+            meanings: set[str] = set()
+            for position, item in enumerate(self.items):
+                if item.position != position or item.id in ids:
+                    raise ValueError("企画のIDまたは位置が不正です。")
+                ids.add(item.id)
+                for field in ("meaning", "expression", "pose"):
+                    value = getattr(item, field).strip()
+                    if not value:
+                        raise ValueError(f"{field}を入力してください。")
+                meaning = item.meaning.strip()
+                if meaning in meanings:
+                    raise ValueError("伝えたい言葉／意味が重複しています。")
+                meanings.add(meaning)
         return self
 
 
@@ -354,6 +386,7 @@ async def generate_images(request: GenerateRequest) -> StreamingResponse:
         start_index=request.start_index,
         model=request.model,
         quality=request.quality,
+        items=[item.model_dump() for item in request.items] if request.items is not None else None,
     )
 
     async def event_stream() -> AsyncIterator[str]:

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect } from "react";
 import type {
   Config,
+  GeneratedImage,
   GenerationRequest,
   GenerationStartRequest,
 } from "./types/index";
@@ -10,6 +11,7 @@ import type {
 } from "./types/window-api";
 
 import PromptInput from "./components/PromptInput";
+import StampPlanEditor from "./components/StampPlanEditor";
 import ImagePreviewGrid from "./components/ImagePreviewGrid";
 import StampSetEditor from "./components/StampSetEditor";
 import UploadPanel from "./components/UploadPanel";
@@ -40,6 +42,7 @@ import {
   classifyGenerationOutcome,
   toGenerationStartRequest,
 } from "./utils/generationFlow";
+import { validateStampPlan } from "./utils/stampPlan";
 
 /**
  * window.api が存在するときのみ callback を実行する小さなガード。
@@ -91,13 +94,16 @@ const AppInner: React.FC = () => {
   const [isExporting, setIsExporting] = React.useState(false);
   const [exportMessage, setExportMessage] = React.useState<string | null>(null);
   const [isGenerationActive, setIsGenerationActive] = React.useState(false);
+  const [approvalGranted, setApprovalGranted] = React.useState(false);
   const generationUnsubscribeRef = React.useRef<(() => void) | null>(null);
   const activeGenerationStreamIdRef = React.useRef<string | null>(null);
   const pendingGenerationEventsRef = React.useRef<GenerationStreamPayload[]>([]);
   const generationInFlightRef = React.useRef(false);
+  const confirmedRequestRef = React.useRef<GenerationRequest | null>(null);
   const generationRunRef = React.useRef<{
     requiredSucceeded: number;
     baselineSucceeded: number;
+    preserveOnFailure?: GeneratedImage;
   } | null>(null);
   const uploadUnsubscribeRef = React.useRef<(() => void) | null>(null);
   const activeUploadStreamIdRef = React.useRef<string | null>(null);
@@ -207,10 +213,14 @@ const AppInner: React.FC = () => {
       if (payload.event === "progress") {
         const data = payload.data;
         const hasError = data.error != null;
+        if (hasError && run?.preserveOnFailure?.index === data.index) {
+          return;
+        }
         dispatch({
           type: "UPSERT_GENERATED_IMAGE",
           image: {
             index: data.index,
+            itemId: confirmedRequestRef.current?.items?.[data.index]?.id,
             dataUrl: data.dataUrl ?? "",
             tempFilePath: data.latestImagePath ?? "",
             status: hasError ? "error" : "done",
@@ -265,6 +275,7 @@ const AppInner: React.FC = () => {
       request: GenerationStartRequest,
       requiredSucceeded: number,
       baselineSucceeded: number,
+      preserveOnFailure?: GeneratedImage,
     ): Promise<void> => {
       if (generationInFlightRef.current) {
         return;
@@ -273,7 +284,7 @@ const AppInner: React.FC = () => {
       cleanupGenerationStream();
       generationInFlightRef.current = true;
       setIsGenerationActive(true);
-      generationRunRef.current = { requiredSucceeded, baselineSucceeded };
+      generationRunRef.current = { requiredSucceeded, baselineSucceeded, preserveOnFailure };
 
       const api = typeof window !== "undefined" ? window.api : undefined;
       if (!api?.image?.generate || !api.onGenerateProgress) {
@@ -321,6 +332,13 @@ const AppInner: React.FC = () => {
       if (generationInFlightRef.current) {
         return;
       }
+      const errors = validateStampPlan(request);
+      if (errors.length > 0) {
+        setError(errors[0]);
+        return;
+      }
+      confirmedRequestRef.current = request;
+      setApprovalGranted(false);
       // プロンプト履歴へ保存（要件 1.7）
       addHistory(request.prompt);
       dispatch({ type: "START_GENERATION", request });
@@ -331,16 +349,13 @@ const AppInner: React.FC = () => {
         0,
       );
     },
-    [addHistory, dispatch, startGeneration, state.config],
+    [addHistory, dispatch, setError, startGeneration, state.config],
   );
 
-  const handleHistorySelect = useCallback(
-    (_prompt: string): void => {
-      // 履歴選択は PromptInput 内のフォームへ反映される（要件 1.8）。
-      // ここでは追加の副作用は行わない。
-    },
-    [],
-  );
+  const handleCreatePlan = useCallback((request: GenerationRequest): void => {
+    if (generationInFlightRef.current) return;
+    dispatch({ type: "SET_DRAFT_REQUEST", request });
+  }, [dispatch]);
 
   const handleRetryGeneration = useCallback((): void => {
     if (state.currentRequest) {
@@ -357,25 +372,30 @@ const AppInner: React.FC = () => {
 
   const handleRegenerateImage = useCallback(
     (index: number): void => {
-      // 個別再生成: 元の Prompt・スタイルで 1 枚を再生成する（要件 2.9）
+      // 個別再生成: 確定した企画から対象位置の設定を使用する。
       if (!state.currentRequest || generationInFlightRef.current) {
         return;
       }
+      if (!state.currentRequest.items?.[index]) return;
       const baselineSucceeded = state.generatedImages.filter(
         (image) => image.index !== index && image.status === "done",
       ).length;
+      const previousImage = state.generatedImages.find((image) => image.index === index && image.status === "done");
       const isApprovalPreviewOnly =
         state.currentRequest.mode === "preview_approval" &&
         state.generatedImages.every((image) => image.index === 0);
-      dispatch({
-        type: "UPSERT_GENERATED_IMAGE",
-        image: {
-          index,
-          dataUrl: "",
-          tempFilePath: "",
-          status: "generating",
-        },
-      });
+      if (!previousImage) {
+        dispatch({
+          type: "UPSERT_GENERATED_IMAGE",
+          image: {
+            index,
+            itemId: state.currentRequest.items[index].id,
+            dataUrl: "",
+            tempFilePath: "",
+            status: "generating",
+          },
+        });
+      }
       void startGeneration(
         toGenerationStartRequest(state.currentRequest, state.config, {
           count: 1,
@@ -384,6 +404,7 @@ const AppInner: React.FC = () => {
         }),
         isApprovalPreviewOnly ? 1 : state.currentRequest.count,
         baselineSucceeded,
+        previousImage,
       );
     },
     [
@@ -408,6 +429,7 @@ const AppInner: React.FC = () => {
       const baselineSucceeded = state.generatedImages.filter(
         (image) => image.status === "done",
       ).length;
+      setApprovalGranted(true);
       void startGeneration(
         toGenerationStartRequest(state.currentRequest, state.config, {
           count: remainingCount,
@@ -905,12 +927,22 @@ const AppInner: React.FC = () => {
       {/* メイン生成フロー（補助パネルが開いていないときに表示） */}
       {state.panel === null && (
         <main className="app__main">
-          {/* 1. プロンプト入力（要件 1） */}
+          {/* 1. 共通設定 */}
           {state.step === "prompt" && (
             <PromptInput
-              onSubmit={handleGenerate}
+              onSubmit={handleCreatePlan}
               history={history}
-              onHistorySelect={handleHistorySelect}
+              initialRequest={state.draftRequest}
+            />
+          )}
+
+          {state.step === "plan" && state.draftRequest && (
+            <StampPlanEditor
+              key={`${state.draftRequest.theme}-${state.draftRequest.count}-${state.draftRequest.prompt}`}
+              request={state.draftRequest}
+              onItemsChange={(items) => dispatch({ type: "SET_DRAFT_REQUEST", request: { ...state.draftRequest!, items } })}
+              onBack={() => dispatch({ type: "GO_TO_STEP", step: "prompt" })}
+              onGenerate={handleGenerate}
             />
           )}
 
@@ -919,6 +951,7 @@ const AppInner: React.FC = () => {
             <>
               <ImagePreviewGrid
                 images={state.generatedImages}
+                items={state.currentRequest?.items}
                 mode={state.currentRequest?.mode ?? "batch"}
                 totalCount={totalCount}
                 onDelete={handleDeleteImage}
@@ -928,6 +961,7 @@ const AppInner: React.FC = () => {
                 onRetryGeneration={handleRetryGeneration}
                 hasError={state.generationFailed}
                 isGenerating={isGenerationActive}
+                approvalGranted={approvalGranted}
                 {...(state.error ? { errorMessage: state.error } : {})}
               />
               {state.step === "preview" &&

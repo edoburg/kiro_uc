@@ -35,6 +35,7 @@ import { recalculateStampSet } from "../utils/stampSet";
 /** 生成フローの画面ステップ */
 export type FlowStep =
   | "prompt"
+  | "plan"
   | "generating"
   | "preview"
   | "processing"
@@ -56,6 +57,7 @@ export interface AppState {
 
   /** 現在の生成リクエスト */
   currentRequest: GenerationRequest | null;
+  draftRequest: GenerationRequest | null;
   /** 生成済み画像一覧 */
   generatedImages: GeneratedImage[];
   /** LINE 規格変換済みのスタンプセット */
@@ -88,6 +90,7 @@ export type AppAction =
   | { type: "SET_LINE_CREDENTIALS_CONFIGURED"; configured: boolean }
   | { type: "COMPLETE_SETUP" }
   | { type: "START_GENERATION"; request: GenerationRequest }
+  | { type: "SET_DRAFT_REQUEST"; request: GenerationRequest }
   | { type: "SET_GENERATED_IMAGES"; images: GeneratedImage[] }
   | { type: "UPSERT_GENERATED_IMAGE"; image: GeneratedImage }
   | { type: "DELETE_GENERATED_IMAGE"; index: number }
@@ -119,6 +122,7 @@ export const initialAppState: AppState = {
   aiApiKeyConfigured: false,
   lineCredentialsConfigured: false,
   currentRequest: null,
+  draftRequest: null,
   generatedImages: [],
   stampSet: null,
   uploadProgress: null,
@@ -159,6 +163,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         currentRequest: action.request,
+        draftRequest: null,
         generatedImages: [],
         stampSet: null,
         uploadResult: null,
@@ -167,6 +172,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         error: null,
         step: "generating",
       };
+
+    case "SET_DRAFT_REQUEST":
+      return { ...state, draftRequest: action.request, step: "plan", error: null };
 
     case "SET_GENERATED_IMAGES":
       return { ...state, generatedImages: action.images };

@@ -173,6 +173,9 @@ class GenerationRequest:
     quality: str = "auto"
     """OpenAI画像生成品質"""
 
+    items: Optional[list[dict]] = None
+    """確定済みの全企画。部分生成でも全件を保持する。"""
+
 
 @dataclass
 class GeneratedImage:

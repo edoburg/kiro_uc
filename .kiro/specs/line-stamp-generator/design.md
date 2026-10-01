@@ -646,3 +646,12 @@ def test_prompt_history_fifo(prompts):
 - UIコンポーネントのレンダリングはスナップショットテストを使用する
 - 外部サービス（AI API、Playwright、OS Keychain）はすべてモックを使用する
 - パフォーマンス要件（変換 10 秒以内等）はスモークテストとして別途計測する
+# 項目別企画の設計
+
+`PromptInput` は共通プロンプト（1000文字以下）、テーマ、枚数、スタイル、モードを受け取り、`createStampPlan` で定型企画を作る。`StampPlanEditor` が全項目の意味・表情・ポーズ・小物を編集し、`validateStampPlan` を通過したときだけ `App` が画像生成を始める。企画生成関数は定型データに閉じ、将来の提案方式へ差し替えられる。
+
+`GenerationRequest` の `items` は全枚数分の確定済み企画である。各項目は `id`、`position`、`meaning`、`expression`、`pose`、`prop` を持つ。部分生成でも全件を `GenerationStartRequest` に含め、`count` と `startIndex` で対象範囲を指定する。Electron の `image:generate` と preload はこのオブジェクトを FastAPI `/generate` に透過する。FastAPI は件数（8/16/24/32/40）、位置の連続性、IDの一意性、意味の重複、必須値、項目別100文字上限、対象範囲をSSE開始前に検証する。既存のプロンプト単体要求は後方互換として受け付ける。
+
+`ImageGeneratorService.generate_batch` は対象位置ごとに `build_stamp_prompt` を呼び、共通設定、対象の1項目、透過・単一画像・文字なしの出力ルールだけをアダプタへ渡す。アダプタのモデル・品質・透過PNGパラメータは変更しない。アダプタからの局所インデックスは `start_index + offset` に変換する。`generate_single` も対象の絶対位置を使用する。
+
+`App` は生成開始時の企画を `currentRequest` に保存し、プレビュー承認、先頭再生成、個別再生成、削除後の再生成で同じスナップショットを使う。`GeneratedImage.itemId` と絶対 `index` によって企画と結果を対応させる。プレビューは未生成の位置も企画ラベル付きで表示し、削除後はその位置から再生成できる。成功済み画像の再生成が失敗したときは元画像を残す。既存の画像処理・エクスポートは絶対位置でソートした結果を受け取る。画像参照によるキャラクター統一、AI企画提案、画像類似判定は将来の拡張とする。

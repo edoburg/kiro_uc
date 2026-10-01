@@ -1,5 +1,5 @@
 import React from "react";
-import type { GeneratedImage, GenerationMode } from "../types/index";
+import type { GeneratedImage, GenerationMode, StampPlanItem } from "../types/index";
 
 /**
  * ImagePreviewGrid の Props。
@@ -11,6 +11,7 @@ import type { GeneratedImage, GenerationMode } from "../types/index";
 export interface ImagePreviewGridProps {
   /** 表示対象の生成画像一覧 */
   images: GeneratedImage[];
+  items?: StampPlanItem[];
   /** 生成モード（"batch" | "preview_approval"） */
   mode: GenerationMode;
   /** 生成予定の総枚数（進捗表示・残り枚数算出に使用） */
@@ -37,6 +38,7 @@ export interface ImagePreviewGridProps {
   errorMessage?: string;
   /** 生成要求が実行中か。多重開始を防ぐため操作を無効化する。 */
   isGenerating?: boolean;
+  approvalGranted?: boolean;
 }
 
 /**
@@ -55,6 +57,7 @@ export function remainingCountForApproval(totalCount: number): number {
  */
 const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
   images,
+  items,
   mode,
   totalCount,
   onDelete,
@@ -65,6 +68,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
   hasError = false,
   errorMessage,
   isGenerating = false,
+  approvalGranted = false,
 }) => {
   // 完了枚数（進捗表示用、要件 2.5）
   const completedCount = images.filter((img) => img.status === "done").length;
@@ -72,6 +76,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
   const isAwaitingApproval =
     !isGenerating &&
     mode === "preview_approval" &&
+    !approvalGranted &&
     completedCount >= 1 &&
     completedCount < totalCount;
 
@@ -116,8 +121,11 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
 
       {/* 生成画像のグリッド表示（要件 2.6） */}
       <ul className="preview-grid" aria-label="生成画像一覧">
-        {images.map((image) => (
-          <li key={image.index} className="preview-item">
+        {(items ? items.map((item) => images.find((image) => image.itemId ? image.itemId === item.id : image.index === item.position) ?? {
+          index: item.position, itemId: item.id, dataUrl: "", tempFilePath: "", status: "pending" as const,
+        }) : images).map((image) => (
+          <li key={image.itemId ?? image.index} className="preview-item">
+            {items && <p className="preview-item-label">{(image.itemId ? items.find((item) => item.id === image.itemId) : items.find((item) => item.position === image.index))?.meaning}</p>}
             {image.status === "error" ? (
               // 個別画像のエラー状態と再試行ボタン（要件 2.8）
               <div className="preview-item-error" role="alert">
@@ -163,13 +171,17 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
                   </button>
                 </div>
               </>
+            ) : image.status === "pending" && (mode === "batch" || approvalGranted || image.index === 0) ? (
+              <button type="button" className="regenerate-button" onClick={() => onRegenerate(image.index)} disabled={isGenerating} aria-label={`画像 ${image.index + 1} を生成`}>
+                生成する
+              </button>
             ) : (
               // pending / generating 状態のプレースホルダ
               <div
                 className="preview-item-loading"
                 aria-label={`画像 ${image.index + 1} を生成中`}
               >
-                <span>生成中...</span>
+                <span>{image.status === "pending" ? "承認待ち" : "生成中..."}</span>
               </div>
             )}
           </li>

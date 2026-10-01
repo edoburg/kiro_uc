@@ -5,8 +5,10 @@ import type {
   GenerationStyle,
   PromptHistory,
   StampCount,
+  StampTheme,
 } from "../types/index";
 import { validatePrompt, validatePromptLength } from "../utils/validation";
+import { createStampPlan } from "../utils/stampPlan";
 
 /** プロンプト最大文字数（LINE 規格ではなくアプリ仕様上の上限） */
 const MAX_PROMPT_LENGTH = 1000;
@@ -33,8 +35,7 @@ export interface PromptInputProps {
   onSubmit: (request: GenerationRequest) => void;
   /** プロンプト履歴（新しい順・最大 20 件） */
   history: PromptHistory[];
-  /** 履歴選択時にプロンプトテキストを反映する（要件 1.8） */
-  onHistorySelect: (prompt: string) => void;
+  initialRequest?: GenerationRequest | null;
 }
 
 /**
@@ -54,12 +55,13 @@ export interface PromptInputProps {
 const PromptInput: React.FC<PromptInputProps> = ({
   onSubmit,
   history,
-  onHistorySelect,
+  initialRequest,
 }) => {
-  const [prompt, setPrompt] = useState<string>("");
-  const [count, setCount] = useState<StampCount>(8);
-  const [style, setStyle] = useState<GenerationStyle | "">("");
-  const [mode, setMode] = useState<GenerationMode>("batch");
+  const [prompt, setPrompt] = useState<string>(initialRequest?.prompt ?? "");
+  const [count, setCount] = useState<StampCount>(initialRequest?.count ?? 8);
+  const [style, setStyle] = useState<GenerationStyle | "">(initialRequest?.style ?? "");
+  const [mode, setMode] = useState<GenerationMode>(initialRequest?.mode ?? "batch");
+  const [theme, setTheme] = useState<StampTheme>(initialRequest?.theme ?? "daily");
   /** 送信を試みたか（空エラーは送信時に表示する - 要件 1.3） */
   const [submitAttempted, setSubmitAttempted] = useState<boolean>(false);
 
@@ -90,6 +92,10 @@ const PromptInput: React.FC<PromptInputProps> = ({
       prompt,
       count,
       mode,
+      theme,
+      items: initialRequest?.count === count && initialRequest.theme === theme && initialRequest.items
+        ? initialRequest.items
+        : createStampPlan(theme, count),
       ...(style !== "" ? { style } : {}),
     };
     onSubmit(request);
@@ -98,14 +104,14 @@ const PromptInput: React.FC<PromptInputProps> = ({
   return (
     <form className="prompt-input" onSubmit={handleSubmit} noValidate>
       <div className="prompt-input__field">
-        <label htmlFor="prompt-text">スタンプの条件（テーマ・スタイル・キャラクターなど）</label>
+        <label htmlFor="prompt-text">共通設定（キャラクターの外見・画風）</label>
         <textarea
           id="prompt-text"
           name="prompt"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={5}
-          placeholder="例: ふわふわの白い子猫が笑ったり泣いたりするかわいいスタンプ"
+          placeholder="例: 白い、丸く横長で少し眠そうなアザラシ。短い前足、小さな濃紺の目。シンプルなイラスト"
           aria-invalid={displayedError !== null}
           aria-describedby="prompt-char-count prompt-error"
         />
@@ -125,6 +131,16 @@ const PromptInput: React.FC<PromptInputProps> = ({
             {displayedError}
           </p>
         )}
+      </div>
+
+      <p>ここでは外見と画風を指定します。言葉／意味、表情、ポーズ、小物は次の企画一覧で編集できます。文字は画像に描かず、意味を表情とポーズで伝えます。</p>
+      {initialRequest && <p>テーマや枚数を変更して内容を作り直すと、企画一覧で編集した内容は消えます。</p>}
+      <div className="prompt-input__field">
+        <label htmlFor="stamp-theme">テーマ</label>
+        <select id="stamp-theme" value={theme} onChange={(event) => setTheme(event.target.value as StampTheme)}>
+          <option value="daily">日常の挨拶</option>
+          <option value="work">仕事で使う言葉</option>
+        </select>
       </div>
 
       {/* スタンプ枚数セレクタ（要件 1.4, デフォルト 8） */}
@@ -189,7 +205,7 @@ const PromptInput: React.FC<PromptInputProps> = ({
             value=""
             onChange={(e) => {
               if (e.target.value !== "") {
-                onHistorySelect(e.target.value);
+                setPrompt(e.target.value);
               }
             }}
           >
@@ -207,7 +223,7 @@ const PromptInput: React.FC<PromptInputProps> = ({
 
       {submitError === null && (
         <button type="submit" className="prompt-input__submit">
-          生成する
+          スタンプ内容を作成
         </button>
       )}
     </form>
