@@ -90,6 +90,7 @@ export type AppAction =
   | { type: "SET_LINE_CREDENTIALS_CONFIGURED"; configured: boolean }
   | { type: "COMPLETE_SETUP" }
   | { type: "START_GENERATION"; request: GenerationRequest }
+  | { type: "UPDATE_CURRENT_REQUEST"; request: GenerationRequest }
   | { type: "SET_DRAFT_REQUEST"; request: GenerationRequest }
   | { type: "SET_GENERATED_IMAGES"; images: GeneratedImage[] }
   | { type: "UPSERT_GENERATED_IMAGE"; image: GeneratedImage }
@@ -172,6 +173,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         error: null,
         step: "generating",
       };
+
+    case "UPDATE_CURRENT_REQUEST":
+      return { ...state, currentRequest: action.request };
 
     case "SET_DRAFT_REQUEST":
       return { ...state, draftRequest: action.request, step: "plan", error: null };

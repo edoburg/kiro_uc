@@ -1,5 +1,6 @@
 import React from "react";
 import type { GeneratedImage, GenerationMode, StampPlanItem } from "../types/index";
+import RegenerationEditor from "./RegenerationEditor";
 
 /**
  * ImagePreviewGrid の Props。
@@ -18,8 +19,10 @@ export interface ImagePreviewGridProps {
   totalCount: number;
   /** 個別画像の削除（要件 2.9） */
   onDelete: (index: number) => void;
-  /** 個別画像の再生成（元の Prompt・スタイルを使用、要件 2.9） */
+  /** 保存済みの個別条件を使う再試行。 */
   onRegenerate: (index: number) => void;
+  /** 成功画像の編集済み条件を確定して単独再生成する。 */
+  onRegenerateWithEdits?: (index: number, item: StampPlanItem) => void;
   /**
    * プレビュー承認モードで「このスタイルで残りを生成する」を押したときのコールバック。
    * 引数 remainingCount は残り生成枚数（= totalCount - 1、要件 2.3）。
@@ -62,6 +65,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
   totalCount,
   onDelete,
   onRegenerate,
+  onRegenerateWithEdits,
   onApproveStyle,
   onRedo,
   onRetryGeneration,
@@ -70,6 +74,12 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
   isGenerating = false,
   approvalGranted = false,
 }) => {
+  const [editingIndex, setEditingIndex] = React.useState<number | null>(null);
+  const regenerationButtons = React.useRef<Record<number, HTMLButtonElement | null>>({});
+  const closeEditor = (index: number): void => {
+    setEditingIndex(null);
+    requestAnimationFrame(() => regenerationButtons.current[index]?.focus());
+  };
   // 完了枚数（進捗表示用、要件 2.5）
   const completedCount = images.filter((img) => img.status === "done").length;
   // プレビュー承認モードで承認待ちか（1 枚目のみ生成済みの状態、要件 2.2）
@@ -137,7 +147,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
                   type="button"
                   className="regenerate-button"
                   onClick={() => onRegenerate(image.index)}
-                  disabled={isGenerating}
+                  disabled={isGenerating || editingIndex !== null}
                   aria-label={`画像 ${image.index + 1} を再試行`}
                 >
                   再試行
@@ -155,7 +165,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
                     type="button"
                     className="delete-button"
                     onClick={() => onDelete(image.index)}
-                    disabled={isGenerating}
+                    disabled={isGenerating || editingIndex !== null}
                     aria-label={`画像 ${image.index + 1} を削除`}
                   >
                     削除
@@ -163,8 +173,15 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
                   <button
                     type="button"
                     className="regenerate-button"
-                    onClick={() => onRegenerate(image.index)}
-                    disabled={isGenerating}
+                    ref={(element) => { regenerationButtons.current[image.index] = element; }}
+                    onClick={() => {
+                      if (onRegenerateWithEdits && items?.some((item) => item.position === image.index)) {
+                        setEditingIndex(image.index);
+                      } else {
+                        onRegenerate(image.index);
+                      }
+                    }}
+                    disabled={isGenerating || editingIndex !== null}
                     aria-label={`画像 ${image.index + 1} を再生成`}
                   >
                     再生成
@@ -172,7 +189,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
                 </div>
               </>
             ) : image.status === "pending" && (mode === "batch" || approvalGranted || image.index === 0) ? (
-              <button type="button" className="regenerate-button" onClick={() => onRegenerate(image.index)} disabled={isGenerating} aria-label={`画像 ${image.index + 1} を生成`}>
+              <button type="button" className="regenerate-button" onClick={() => onRegenerate(image.index)} disabled={isGenerating || editingIndex !== null} aria-label={`画像 ${image.index + 1} を生成`}>
                 生成する
               </button>
             ) : (
@@ -183,6 +200,17 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
               >
                 <span>{image.status === "pending" ? "承認待ち" : "生成中..."}</span>
               </div>
+            )}
+            {editingIndex === image.index && !isGenerating && items && onRegenerateWithEdits && (
+              <RegenerationEditor
+                item={items.find((item) => item.position === image.index)!}
+                items={items}
+                onCancel={() => closeEditor(image.index)}
+                onConfirm={(edited) => {
+                  setEditingIndex(null);
+                  onRegenerateWithEdits(image.index, edited);
+                }}
+              />
             )}
           </li>
         ))}
@@ -195,6 +223,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
             type="button"
             className="approve-style-button"
             onClick={handleApproveStyle}
+            disabled={editingIndex !== null}
           >
             このスタイルで残りを生成する
           </button>
@@ -202,6 +231,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
             type="button"
             className="redo-button"
             onClick={() => onRedo?.()}
+            disabled={editingIndex !== null}
           >
             やり直す
           </button>

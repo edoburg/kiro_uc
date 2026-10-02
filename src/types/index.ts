@@ -22,6 +22,8 @@ export interface StampPlanItem {
   expression: string;
   pose: string;
   prop: string;
+  /** この1枚だけに適用する補足指示（最大500文字）。 */
+  additionalInstructions?: string;
 }
 
 /** OpenAI GPT Image 2.5 の生成品質。 */

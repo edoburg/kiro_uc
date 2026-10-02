@@ -314,6 +314,7 @@ class StampPlanItemPayload(ApiModel):
     expression: str = Field(min_length=1, max_length=100)
     pose: str = Field(min_length=1, max_length=100)
     prop: str = Field(default="", max_length=100)
+    additional_instructions: str = Field(default="", max_length=500)
 
 
 class GenerateRequest(ApiModel):
@@ -357,7 +358,8 @@ class GenerateRequest(ApiModel):
                 for field in ("meaning", "expression", "pose"):
                     value = getattr(item, field).strip()
                     if not value:
-                        raise ValueError(f"{field}を入力してください。")
+                        label = {"meaning": "伝えたい言葉／意味", "expression": "表情", "pose": "ポーズ"}[field]
+                        raise ValueError(f"{label}を入力してください。")
                 meaning = item.meaning.strip()
                 if meaning in meanings:
                     raise ValueError("伝えたい言葉／意味が重複しています。")

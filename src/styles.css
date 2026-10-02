@@ -550,3 +550,32 @@ h2 {
   font-weight: 700;
   margin: 0.25rem 0;
 }
+.regeneration-editor {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #7b92a8;
+  border-radius: 0.5rem;
+  background: #f8fbff;
+  color: #17212b;
+}
+
+.regeneration-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  text-align: left;
+}
+
+.regeneration-editor input,
+.regeneration-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.regeneration-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}

@@ -105,9 +105,11 @@ export function validateStampPlan(request: GenerationRequest): string[] {
     ids.add(item.id);
     for (const field of ["meaning", "expression", "pose"] as const) {
       const value = item[field].trim();
-      if (!value || value.length > 100) errors.push(`${position + 1}件目の${field}は1～100文字で入力してください。`);
+      const label = { meaning: "伝えたい言葉／意味", expression: "表情", pose: "ポーズ" }[field];
+      if (!value || value.length > 100) errors.push(`${position + 1}件目の${label}は1～100文字で入力してください。`);
     }
     if (item.prop.trim().length > 100) errors.push(`${position + 1}件目の小物は100文字以内にしてください。`);
+    if ((item.additionalInstructions ?? "").length > 500) errors.push(`${position + 1}件目の追加の指示は500文字以内にしてください。`);
     const meaning = item.meaning.trim();
     if (meaning && meanings.has(meaning)) errors.push(`「${meaning}」が重複しています。`);
     meanings.add(meaning);

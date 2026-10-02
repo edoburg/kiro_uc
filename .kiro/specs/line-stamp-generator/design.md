@@ -654,4 +654,12 @@ def test_prompt_history_fifo(prompts):
 
 `ImageGeneratorService.generate_batch` は対象位置ごとに `build_stamp_prompt` を呼び、共通設定、対象の1項目、透過・単一画像・文字なしの出力ルールだけをアダプタへ渡す。アダプタのモデル・品質・透過PNGパラメータは変更しない。アダプタからの局所インデックスは `start_index + offset` に変換する。`generate_single` も対象の絶対位置を使用する。
 
-`App` は生成開始時の企画を `currentRequest` に保存し、プレビュー承認、先頭再生成、個別再生成、削除後の再生成で同じスナップショットを使う。`GeneratedImage.itemId` と絶対 `index` によって企画と結果を対応させる。プレビューは未生成の位置も企画ラベル付きで表示し、削除後はその位置から再生成できる。成功済み画像の再生成が失敗したときは元画像を残す。既存の画像処理・エクスポートは絶対位置でソートした結果を受け取る。画像参照によるキャラクター統一、AI企画提案、画像類似判定は将来の拡張とする。
+`App` は生成開始時の企画を `currentRequest` に保存する。プレビュー承認・削除後の生成は確定済み企画を使い、個別再生成は対象項目を編集して更新した最新企画を使う。`GeneratedImage.itemId` と絶対 `index` によって企画と結果を対応させる。プレビューは未生成の位置も企画ラベル付きで表示し、削除後はその位置から再生成できる。成功済み画像の再生成が失敗したときは元画像を残す。既存の画像処理・エクスポートは絶対位置でソートした結果を受け取る。画像参照によるキャラクター統一、AI企画提案、画像類似判定は将来の拡張とする。
+
+## レビュー時の個別再生成
+
+`ImagePreviewGrid` の成功画像カードは「再生成」で `RegenerationEditor` を開く。カード内に元画像を表示したまま、最新の確定済み項目を入力ドラフトへ複製する。フォームは意味・表情・ポーズ・小物（各100文字以下）と追加の指示（500文字以下）を持ち、`validateStampPlan` によって必須値と全企画内の意味重複を検証する。キャンセルはドラフトを破棄する。Escape キーでも閉じる。
+
+確定時に `App` は元の `id` と `position` を固定して対象項目だけを更新し、`UPDATE_CURRENT_REQUEST` で画像を消さずに保存する。更新済み要求を同じ関数呼び出しから `toGenerationStartRequest` に渡し、全企画・`count: 1`・対象の絶対 `startIndex` を Electron IPC へ送る。`confirmedRequestRef` も送信前に更新する。失敗時は従来の成功画像を維持し、編集済み条件は次回のフォーム初期値にする。失敗画像と削除済み枠は最新の個別条件で直接再試行する。生成中は操作を無効化する。
+
+`StampPlanItem.additionalInstructions?` は既存データとの互換性を保つ。FastAPI `StampPlanItemPayload.additional_instructions` は既定値空文字、最大500文字で、camelCase 入力を受ける。サービスへは snake_case の dict を渡す。`build_stamp_prompt` は対象の最新の意味・表情・ポーズ・小物を置き換えて組み立て、空でない追加指示だけを独立節として挿入する。先頭項目の追加指示を他項目へ流用しない。

@@ -4,6 +4,7 @@ import type {
   GeneratedImage,
   GenerationRequest,
   GenerationStartRequest,
+  StampPlanItem,
 } from "./types/index";
 import type {
   GenerationStreamPayload,
@@ -81,7 +82,7 @@ function toJapaneseError(err: unknown, fallback: string): string {
  * グローバル状態は AppStoreProvider（React Context + useReducer）で共有する。
  * バックエンドへの呼び出しはすべて window.api（preload）経由（structure.md の IPC 境界）。
  */
-const AppInner: React.FC = () => {
+export const AppInner: React.FC = () => {
   const { state, dispatch } = useAppStore();
   const history = usePromptHistoryStore((s) => s.entries);
   const addHistory = usePromptHistoryStore((s) => s.add);
@@ -235,10 +236,12 @@ const AppInner: React.FC = () => {
       if (payload.event === "error") {
         const message = payload.data.message ?? "画像の生成に失敗しました。";
         dispatch({
-          type: (run?.baselineSucceeded ?? 0) > 0
+          type: (run?.baselineSucceeded ?? 0) > 0 || run?.preserveOnFailure
             ? "GENERATION_PARTIAL"
             : "GENERATION_FAILED",
-          message,
+          message: run?.preserveOnFailure
+            ? `再生成に失敗しました。元画像は保持し、編集済み条件も保存しました。再生成から再試行できます。${message}`
+            : message,
         });
         cleanupGenerationStream();
         return;
@@ -250,15 +253,17 @@ const AppInner: React.FC = () => {
           run?.baselineSucceeded ?? 0,
           run?.requiredSucceeded ?? payload.data.total,
         );
-        if (outcome === "failed") {
+        if (outcome === "failed" && !run?.preserveOnFailure) {
           dispatch({
             type: "GENERATION_FAILED",
             message: "すべての画像生成に失敗しました。もう一度お試しください。",
           });
-        } else if (outcome === "partial") {
+        } else if (outcome !== "complete") {
           dispatch({
             type: "GENERATION_PARTIAL",
-            message: "一部の画像を生成できませんでした。失敗した画像だけ再試行してください。",
+            message: run?.preserveOnFailure
+              ? "再生成に失敗しました。元画像は保持し、編集済み条件も保存しました。再生成から再試行できます。"
+              : "一部の画像を生成できませんでした。失敗した画像だけ再試行してください。",
           });
         } else {
           dispatch({ type: "GENERATION_COMPLETE" });
@@ -290,7 +295,7 @@ const AppInner: React.FC = () => {
       if (!api?.image?.generate || !api.onGenerateProgress) {
         dispatch({
           type:
-            baselineSucceeded > 0
+            baselineSucceeded > 0 || preserveOnFailure
               ? "GENERATION_PARTIAL"
               : "GENERATION_FAILED",
           message: "生成 API を利用できません。",
@@ -316,10 +321,12 @@ const AppInner: React.FC = () => {
       } catch (err) {
         dispatch({
           type:
-            baselineSucceeded > 0
+            baselineSucceeded > 0 || preserveOnFailure
               ? "GENERATION_PARTIAL"
               : "GENERATION_FAILED",
-          message: toJapaneseError(err, "画像の生成に失敗しました。"),
+          message: preserveOnFailure
+            ? `再生成に失敗しました。元画像は保持し、編集済み条件も保存しました。再生成から再試行できます。${toJapaneseError(err, "")}`
+            : toJapaneseError(err, "画像の生成に失敗しました。"),
         });
         cleanupGenerationStream();
       }
@@ -370,39 +377,37 @@ const AppInner: React.FC = () => {
     [dispatch],
   );
 
-  const handleRegenerateImage = useCallback(
-    (index: number): void => {
-      // 個別再生成: 確定した企画から対象位置の設定を使用する。
-      if (!state.currentRequest || generationInFlightRef.current) {
-        return;
-      }
-      if (!state.currentRequest.items?.[index]) return;
+  const startSingleRegeneration = useCallback(
+    (request: GenerationRequest, index: number): void => {
+      if (generationInFlightRef.current || !request.items?.[index]) return;
       const baselineSucceeded = state.generatedImages.filter(
         (image) => image.index !== index && image.status === "done",
       ).length;
       const previousImage = state.generatedImages.find((image) => image.index === index && image.status === "done");
       const isApprovalPreviewOnly =
-        state.currentRequest.mode === "preview_approval" &&
+        request.mode === "preview_approval" &&
         state.generatedImages.every((image) => image.index === 0);
       if (!previousImage) {
         dispatch({
           type: "UPSERT_GENERATED_IMAGE",
           image: {
             index,
-            itemId: state.currentRequest.items[index].id,
+            itemId: request.items[index].id,
             dataUrl: "",
             tempFilePath: "",
             status: "generating",
           },
         });
       }
+      dispatch({ type: "CLEAR_ERROR" });
+      confirmedRequestRef.current = request;
       void startGeneration(
-        toGenerationStartRequest(state.currentRequest, state.config, {
+        toGenerationStartRequest(request, state.config, {
           count: 1,
           startIndex: index,
           mode: "batch",
         }),
-        isApprovalPreviewOnly ? 1 : state.currentRequest.count,
+        isApprovalPreviewOnly ? 1 : request.count,
         baselineSucceeded,
         previousImage,
       );
@@ -411,10 +416,31 @@ const AppInner: React.FC = () => {
       dispatch,
       startGeneration,
       state.config,
-      state.currentRequest,
       state.generatedImages,
     ],
   );
+
+  const handleRegenerateImage = useCallback((index: number): void => {
+    if (state.currentRequest) startSingleRegeneration(state.currentRequest, index);
+  }, [startSingleRegeneration, state.currentRequest]);
+
+  const handleRegenerateWithEdits = useCallback((index: number, edited: StampPlanItem): void => {
+    const current = state.currentRequest;
+    if (!current?.items?.[index] || generationInFlightRef.current) return;
+    const original = current.items[index];
+    const items = current.items.map((item, position) => position === index
+      ? { ...item, meaning: edited.meaning, expression: edited.expression, pose: edited.pose,
+          prop: edited.prop, additionalInstructions: edited.additionalInstructions }
+      : item);
+    const request = { ...current, items };
+    const errors = validateStampPlan(request);
+    if (errors.length > 0 || original.id !== edited.id || original.position !== edited.position) {
+      setError(errors[0] ?? "再生成対象のIDまたは位置が不正です。");
+      return;
+    }
+    dispatch({ type: "UPDATE_CURRENT_REQUEST", request });
+    startSingleRegeneration(request, index);
+  }, [dispatch, setError, startSingleRegeneration, state.currentRequest]);
 
   const handleApproveStyle = useCallback(
     (remainingCount: number): void => {
@@ -956,6 +982,7 @@ const AppInner: React.FC = () => {
                 totalCount={totalCount}
                 onDelete={handleDeleteImage}
                 onRegenerate={handleRegenerateImage}
+                onRegenerateWithEdits={handleRegenerateWithEdits}
                 onApproveStyle={handleApproveStyle}
                 onRedo={handleRedo}
                 onRetryGeneration={handleRetryGeneration}

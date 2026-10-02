@@ -3,6 +3,10 @@
 
 def build_stamp_prompt(common_prompt: str, item: dict) -> str:
     prop = item["prop"].strip() or "なし"
+    additional = (item.get("additional_instructions") or "").strip()
+    additional_section = (
+        f"【今回のスタンプへの追加指示】\n{additional}\n\n" if additional else ""
+    )
     return (
         "【共通設定】\n"
         f"{common_prompt.strip()}\n\n"
@@ -11,6 +15,7 @@ def build_stamp_prompt(common_prompt: str, item: dict) -> str:
         f"表情：{item['expression'].strip()}\n"
         f"ポーズ：{item['pose'].strip()}\n"
         f"小物：{prop}\n\n"
+        f"{additional_section}"
         "【出力ルール】\n"
         "共通のキャラクターの外見・色・画風を維持する。"
         "今回の意味・表情・ポーズのスタンプを1種類だけ描く。"
