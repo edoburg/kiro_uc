@@ -136,6 +136,7 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
         }) : images).map((image) => (
           <li key={image.itemId ?? image.index} className="preview-item">
             {items && <p className="preview-item-label">{(image.itemId ? items.find((item) => item.id === image.itemId) : items.find((item) => item.position === image.index))?.meaning}</p>}
+            {image.dataUrl && <p className="preview-item-text">生成に使った文字：{image.textSettings?.textEnabled ? `表示文字：${image.textSettings.displayText}` : "文字なし"}</p>}
             {image.status === "error" ? (
               // 個別画像のエラー状態と再試行ボタン（要件 2.8）
               <div className="preview-item-error" role="alert">

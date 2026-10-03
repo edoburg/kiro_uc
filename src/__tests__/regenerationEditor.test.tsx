@@ -26,10 +26,14 @@ describe("レビュー時の再生成条件", () => {
     expect(callbacks.onRegenerate).not.toHaveBeenCalled();
     expect(callbacks.onRegenerateWithEdits).not.toHaveBeenCalled();
     fireEvent.change(within(form).getByLabelText("ポーズ"), { target: { value: "仰向けで眠る" } });
+    fireEvent.change(within(form).getByLabelText("画像に描く文字"), { target: { value: "変更する文字" } });
+    fireEvent.click(within(form).getByLabelText("文字を入れる"));
     fireEvent.click(within(form).getByRole("button", { name: "キャンセル" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "画像 4 を再生成" })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "画像 4 を再生成" }));
     expect(screen.getByLabelText("ポーズ")).toHaveValue("丸くなって枕に頭をのせる");
+    expect(screen.getByLabelText("画像に描く文字")).toHaveValue("おやすみ");
+    expect(screen.getByLabelText("文字を入れる")).toBeChecked();
     expect(callbacks.onRegenerateWithEdits).not.toHaveBeenCalled();
   });
 

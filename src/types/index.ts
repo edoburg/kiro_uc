@@ -24,6 +24,10 @@ export interface StampPlanItem {
   prop: string;
   /** この1枚だけに適用する補足指示（最大500文字）。 */
   additionalInstructions?: string;
+  /** 未指定は旧データ互換で文字なし。 */
+  textEnabled?: boolean;
+  /** null/未指定は意味を使用。空文字は明示的な空欄。 */
+  displayText?: string | null;
 }
 
 /** OpenAI GPT Image 2.5 の生成品質。 */
@@ -68,6 +72,8 @@ export interface GeneratedImage {
   /** スタンプセット内のインデックス（0 始まり） */
   index: number;
   itemId?: string;
+  /** この画像の生成に実際に使った設定。次回用条件とは独立。 */
+  textSettings?: { textEnabled: boolean; displayText: string | null };
   /** プレビュー表示用の base64 data URL */
   dataUrl: string;
   /** バックエンド側の一時ファイルパス */

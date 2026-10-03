@@ -315,6 +315,15 @@ class StampPlanItemPayload(ApiModel):
     pose: str = Field(min_length=1, max_length=100)
     prop: str = Field(default="", max_length=100)
     additional_instructions: str = Field(default="", max_length=500)
+    text_enabled: bool = False
+    display_text: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_display_text(self) -> "StampPlanItemPayload":
+        text = (self.meaning if self.display_text is None else self.display_text).strip()
+        if self.text_enabled and not text:
+            raise ValueError("画像に描く文字を1～100文字で入力してください。")
+        return self
 
 
 class GenerateRequest(ApiModel):

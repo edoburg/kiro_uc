@@ -5,6 +5,7 @@ import type {
   GenerationStartRequest,
 } from "../types/index";
 import type { GenerationDonePayload } from "../types/ipc";
+import { normalizeStampPlanItem } from "./stampPlan";
 
 export interface GenerationSlice {
   count: number;
@@ -20,6 +21,7 @@ export function toGenerationStartRequest(
 ): GenerationStartRequest {
   return {
     ...request,
+    ...(request.items ? { items: request.items.map(normalizeStampPlanItem) } : {}),
     count: slice.count,
     startIndex: slice.startIndex,
     mode: slice.mode ?? request.mode,

@@ -652,7 +652,7 @@ def test_prompt_history_fifo(prompts):
 
 `GenerationRequest` の `items` は全枚数分の確定済み企画である。各項目は `id`、`position`、`meaning`、`expression`、`pose`、`prop` を持つ。部分生成でも全件を `GenerationStartRequest` に含め、`count` と `startIndex` で対象範囲を指定する。Electron の `image:generate` と preload はこのオブジェクトを FastAPI `/generate` に透過する。FastAPI は件数（8/16/24/32/40）、位置の連続性、IDの一意性、意味の重複、必須値、項目別100文字上限、対象範囲をSSE開始前に検証する。既存のプロンプト単体要求は後方互換として受け付ける。
 
-`ImageGeneratorService.generate_batch` は対象位置ごとに `build_stamp_prompt` を呼び、共通設定、対象の1項目、透過・単一画像・文字なしの出力ルールだけをアダプタへ渡す。アダプタのモデル・品質・透過PNGパラメータは変更しない。アダプタからの局所インデックスは `start_index + offset` に変換する。`generate_single` も対象の絶対位置を使用する。
+`ImageGeneratorService.generate_batch` は対象位置ごとに `build_stamp_prompt` を呼び、共通設定、対象の1項目、透過・単一画像・項目別文字設定に応じた出力ルールだけをアダプタへ渡す。アダプタのモデル・品質・透過PNGパラメータは変更しない。アダプタからの局所インデックスは `start_index + offset` に変換する。`generate_single` も対象の絶対位置を使用する。
 
 `App` は生成開始時の企画を `currentRequest` に保存する。プレビュー承認・削除後の生成は確定済み企画を使い、個別再生成は対象項目を編集して更新した最新企画を使う。`GeneratedImage.itemId` と絶対 `index` によって企画と結果を対応させる。プレビューは未生成の位置も企画ラベル付きで表示し、削除後はその位置から再生成できる。成功済み画像の再生成が失敗したときは元画像を残す。既存の画像処理・エクスポートは絶対位置でソートした結果を受け取る。画像参照によるキャラクター統一、AI企画提案、画像類似判定は将来の拡張とする。
 
@@ -660,6 +660,18 @@ def test_prompt_history_fifo(prompts):
 
 `ImagePreviewGrid` の成功画像カードは「再生成」で `RegenerationEditor` を開く。カード内に元画像を表示したまま、最新の確定済み項目を入力ドラフトへ複製する。フォームは意味・表情・ポーズ・小物（各100文字以下）と追加の指示（500文字以下）を持ち、`validateStampPlan` によって必須値と全企画内の意味重複を検証する。キャンセルはドラフトを破棄する。Escape キーでも閉じる。
 
-確定時に `App` は元の `id` と `position` を固定して対象項目だけを更新し、`UPDATE_CURRENT_REQUEST` で画像を消さずに保存する。更新済み要求を同じ関数呼び出しから `toGenerationStartRequest` に渡し、全企画・`count: 1`・対象の絶対 `startIndex` を Electron IPC へ送る。`confirmedRequestRef` も送信前に更新する。失敗時は従来の成功画像を維持し、編集済み条件は次回のフォーム初期値にする。失敗画像と削除済み枠は最新の個別条件で直接再試行する。生成中は操作を無効化する。
+確定時に `App` は元の `id` と `position` を固定して対象項目だけを更新し、`UPDATE_CURRENT_REQUEST` で画像を消さずに保存する。更新済み要求を同じ関数呼び出しから `toGenerationStartRequest` に渡し、全企画・`count: 1`・対象の絶対 `startIndex` を Electron IPC へ送る。実行情報にも送信要求を記録する。失敗時は従来の成功画像を維持し、編集済み条件は次回のフォーム初期値にする。失敗画像と削除済み枠は最新の個別条件で直接再試行する。生成中は操作を無効化する。
 
 `StampPlanItem.additionalInstructions?` は既存データとの互換性を保つ。FastAPI `StampPlanItemPayload.additional_instructions` は既定値空文字、最大500文字で、camelCase 入力を受ける。サービスへは snake_case の dict を渡す。`build_stamp_prompt` は対象の最新の意味・表情・ポーズ・小物を置き換えて組み立て、空でない追加指示だけを独立節として挿入する。先頭項目の追加指示を他項目へ流用しない。
+
+## 画像ごとの描き文字の設計
+
+`StampPlanItem` に互換用の任意フィールド `textEnabled?: boolean` と `displayText?: string | null` を追加する。新規作成関数だけがtrue/nullを設定し、`normalizeStampPlanItem` は旧項目をfalse/nullへ正規化する。空文字とfalseは維持し、`resolveDisplayText` はnullish値だけmeaningで補いtrimする。100文字上限はUnicodeコードポイントで数える。企画の永続化機能は現状存在せず、要求・編集ドラフト・IPCスナップショットで設定を保持する。
+
+共通コンポーネント `StampTextSettings` を企画・再生成に使用する。意味使用時はmeaning変更に追従し、入力変更で任意文字になる。チェック変更はdisplayTextに触れず、戻すボタンだけnullへ戻す。文字設定が自由文より優先する案内と、AI文字の目視確認を促す案内を表示する。
+
+FastAPIのstrictな `ApiModel` でcamelCaseを受け、`text_enabled: bool = False`、`display_text: str | None`（100文字以下）をsnake_caseへ変換する。文字ありの解決文字が空白ならSSE開始前に拒否する。`build_stamp_prompt` は共通ルールと文字指定・出力ルールを分離し、文字なしでは任意文字を出さない。補足指示の自動抽出や削除は行わない。
+
+`toGenerationStartRequest` は全項目をコピー・正規化する。Appの実行情報は送信した要求を保持し、成功イベントの絶対indexから生成時の有無と解決済み表示文字を `GeneratedImage.textSettings` に記録する。再生成失敗では元画像とそのtextSettingsを保持し、成功で対象だけ差し替える。設定を持たない旧画像は文字なしと表示する。
+
+スタンプとサムネイルは画像全体を縮小するためクロップで文字を切らない。メイン画像は既存の正方形中央クロップを使うため、端の文字が切れる可能性があり目視確認が必要。今回、画像処理の変更は行わない。

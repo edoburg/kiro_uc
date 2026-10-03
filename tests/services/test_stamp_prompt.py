@@ -57,7 +57,7 @@ def test_builds_only_target_item():
     assert "白いアザラシ" in text
     assert "おやすみ" in text
     assert "おはよう" not in text
-    assert "文字を描かず" in text
+    assert "文字、数字、記号によるメッセージやロゴを描かない" in text
 
 
 def test_regeneration_uses_replaced_values_and_omits_blank_extra_instructions():

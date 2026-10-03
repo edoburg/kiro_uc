@@ -43,7 +43,7 @@ import {
   classifyGenerationOutcome,
   toGenerationStartRequest,
 } from "./utils/generationFlow";
-import { validateStampPlan } from "./utils/stampPlan";
+import { normalizeStampPlanItem, resolveDisplayText, validateStampPlan } from "./utils/stampPlan";
 
 /**
  * window.api が存在するときのみ callback を実行する小さなガード。
@@ -100,11 +100,11 @@ export const AppInner: React.FC = () => {
   const activeGenerationStreamIdRef = React.useRef<string | null>(null);
   const pendingGenerationEventsRef = React.useRef<GenerationStreamPayload[]>([]);
   const generationInFlightRef = React.useRef(false);
-  const confirmedRequestRef = React.useRef<GenerationRequest | null>(null);
   const generationRunRef = React.useRef<{
     requiredSucceeded: number;
     baselineSucceeded: number;
     preserveOnFailure?: GeneratedImage;
+    request: GenerationStartRequest;
   } | null>(null);
   const uploadUnsubscribeRef = React.useRef<(() => void) | null>(null);
   const activeUploadStreamIdRef = React.useRef<string | null>(null);
@@ -221,7 +221,12 @@ export const AppInner: React.FC = () => {
           type: "UPSERT_GENERATED_IMAGE",
           image: {
             index: data.index,
-            itemId: confirmedRequestRef.current?.items?.[data.index]?.id,
+            itemId: run?.request.items?.[data.index]?.id,
+            textSettings: {
+              textEnabled: run?.request.items?.[data.index]?.textEnabled ?? false,
+              displayText: run?.request.items?.[data.index]?.textEnabled
+                ? resolveDisplayText(run.request.items[data.index]) : null,
+            },
             dataUrl: data.dataUrl ?? "",
             tempFilePath: data.latestImagePath ?? "",
             status: hasError ? "error" : "done",
@@ -289,7 +294,7 @@ export const AppInner: React.FC = () => {
       cleanupGenerationStream();
       generationInFlightRef.current = true;
       setIsGenerationActive(true);
-      generationRunRef.current = { requiredSucceeded, baselineSucceeded, preserveOnFailure };
+      generationRunRef.current = { requiredSucceeded, baselineSucceeded, preserveOnFailure, request };
 
       const api = typeof window !== "undefined" ? window.api : undefined;
       if (!api?.image?.generate || !api.onGenerateProgress) {
@@ -344,7 +349,7 @@ export const AppInner: React.FC = () => {
         setError(errors[0]);
         return;
       }
-      confirmedRequestRef.current = request;
+      request = { ...request, items: request.items?.map(normalizeStampPlanItem) };
       setApprovalGranted(false);
       // プロンプト履歴へ保存（要件 1.7）
       addHistory(request.prompt);
@@ -400,7 +405,6 @@ export const AppInner: React.FC = () => {
         });
       }
       dispatch({ type: "CLEAR_ERROR" });
-      confirmedRequestRef.current = request;
       void startGeneration(
         toGenerationStartRequest(request, state.config, {
           count: 1,
@@ -430,7 +434,8 @@ export const AppInner: React.FC = () => {
     const original = current.items[index];
     const items = current.items.map((item, position) => position === index
       ? { ...item, meaning: edited.meaning, expression: edited.expression, pose: edited.pose,
-          prop: edited.prop, additionalInstructions: edited.additionalInstructions }
+          prop: edited.prop, additionalInstructions: edited.additionalInstructions,
+          textEnabled: edited.textEnabled, displayText: edited.displayText }
       : item);
     const request = { ...current, items };
     const errors = validateStampPlan(request);

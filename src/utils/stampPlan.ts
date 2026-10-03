@@ -91,7 +91,16 @@ const work: Template[] = [
 export function createStampPlan(theme: StampTheme, count: StampCount): StampPlanItem[] {
   return (theme === "daily" ? daily : work).slice(0, count).map(([meaning, expression, pose, prop], position) => ({
     id: `${theme}-${position + 1}`, position, meaning, expression, pose, prop,
+    textEnabled: true, displayText: null,
   }));
+}
+
+export function normalizeStampPlanItem(item: StampPlanItem): StampPlanItem {
+  return { ...item, textEnabled: item.textEnabled ?? false, displayText: item.displayText ?? null };
+}
+
+export function resolveDisplayText(item: StampPlanItem): string {
+  return (item.displayText ?? item.meaning).trim();
 }
 
 export function validateStampPlan(request: GenerationRequest): string[] {
@@ -103,6 +112,13 @@ export function validateStampPlan(request: GenerationRequest): string[] {
   items.forEach((item, position) => {
     if (item.position !== position || !item.id || ids.has(item.id)) errors.push(`${position + 1}件目のIDまたは位置が不正です。`);
     ids.add(item.id);
+    if (item.textEnabled !== undefined && typeof item.textEnabled !== "boolean") errors.push(`${position + 1}件目の文字設定が不正です。`);
+    if (item.displayText != null && typeof item.displayText !== "string") {
+      errors.push(`${position + 1}件目の表示文字が不正です。`);
+    } else {
+      if (item.displayText != null && Array.from(item.displayText).length > 100) errors.push(`${position + 1}件目の表示文字は100文字以内にしてください。`);
+      if (item.textEnabled && !resolveDisplayText(item)) errors.push(`${position + 1}件目の画像に描く文字を入力してください。`);
+    }
     for (const field of ["meaning", "expression", "pose"] as const) {
       const value = item[field].trim();
       const label = { meaning: "伝えたい言葉／意味", expression: "表情", pose: "ポーズ" }[field];

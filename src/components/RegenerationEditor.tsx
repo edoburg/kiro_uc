@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { StampPlanItem } from "../types/index";
 import { validateStampPlan } from "../utils/stampPlan";
+import StampTextSettings from "./StampTextSettings";
 
 interface Props {
   item: StampPlanItem;
@@ -17,6 +18,8 @@ const RegenerationEditor: React.FC<Props> = ({ item, items, onCancel, onConfirm 
     pose: item.pose,
     prop: item.prop,
     additionalInstructions: item.additionalInstructions ?? "",
+    textEnabled: item.textEnabled ?? false,
+    displayText: item.displayText ?? null,
   }));
   const [attempted, setAttempted] = useState(false);
   const candidate: StampPlanItem = { ...item, ...draft };
@@ -56,6 +59,8 @@ const RegenerationEditor: React.FC<Props> = ({ item, items, onCancel, onConfirm 
     <label>追加の指示（任意・500文字以内）
       <textarea value={draft.additionalInstructions} maxLength={500} rows={3} placeholder="例: 中央下寄りに配置し、顔を隠さない" onChange={(event) => update("additionalInstructions", event.target.value)} />
     </label>
+    <StampTextSettings item={candidate} onChange={(settings) => setDraft((current) => ({ ...current, ...settings }))} />
+    <p>文字はAIが手書き風に描きます。誤字や読みやすさは生成後に確認してください。文字設定は共通設定・追加指示より優先されます。</p>
     {attempted && errors.length > 0 && <div role="alert">{errors.map((error) => <p key={error}>{error}</p>)}</div>}
     <div className="regeneration-editor__actions">
       <button type="button" onClick={onCancel}>キャンセル</button>
