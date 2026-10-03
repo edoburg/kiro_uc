@@ -546,6 +546,31 @@ h2 {
   box-sizing: border-box;
 }
 
+.stamp-plan-editor__item .stamp-text-settings {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.stamp-plan-editor__item .stamp-text-settings__toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.stamp-plan-editor__item .stamp-text-settings__toggle input {
+  width: auto;
+  margin: 0;
+}
+
+.stamp-plan-editor__item .stamp-text-settings__text {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
 .preview-item-label {
   font-weight: 700;
   margin: 0.25rem 0;
