@@ -14,6 +14,7 @@ import type {
 
 import PromptInput from "./components/PromptInput";
 import StampPlanEditor from "./components/StampPlanEditor";
+import StampTemplateSelector from "./components/StampTemplateSelector";
 import GenerationPresetPanel from "./components/GenerationPresetPanel";
 import ImagePreviewGrid from "./components/ImagePreviewGrid";
 import StampSetEditor from "./components/StampSetEditor";
@@ -378,8 +379,19 @@ export const AppInner: React.FC = () => {
 
   const handleCreatePlan = useCallback((request: GenerationRequest): void => {
     if (generationInFlightRef.current || presetBusyRef.current) return;
-    dispatch({ type: "SET_DRAFT_REQUEST", request });
+    // 共通設定から企画編集へ進む途中で、テーマの40件から生成する項目を選ぶ。
+    dispatch({ type: "OPEN_TEMPLATE_SELECTION", request });
   }, [dispatch]);
+
+  const handleOpenPlanEditor = useCallback((): void => {
+    const request = state.draftRequest;
+    if (!request || generationInFlightRef.current || presetBusyRef.current) return;
+    if ((request.items?.length ?? 0) !== request.count) {
+      setError("選択した項目数がスタンプ枚数と一致しません。");
+      return;
+    }
+    dispatch({ type: "SET_DRAFT_REQUEST", request });
+  }, [dispatch, setError, state.draftRequest]);
 
   const handleRetryGeneration = useCallback((): void => {
     if (state.currentRequest) {
@@ -1031,6 +1043,19 @@ export const AppInner: React.FC = () => {
               history={history}
               initialRequest={workRequest}
               onDraftChange={(request) => dispatch({ type: "UPDATE_DRAFT_REQUEST", request })}
+              templateDrafts={state.templateDrafts}
+              onTemplateDraftsChange={(drafts) => dispatch({ type: "SET_TEMPLATE_DRAFTS", drafts })}
+            />
+          )}
+
+          {state.step === "select" && state.draftRequest && (
+            <StampTemplateSelector
+              request={state.draftRequest}
+              drafts={state.templateDrafts}
+              locked={isGenerationActive}
+              onChange={(selection) => dispatch({ type: "UPDATE_TEMPLATE_SELECTION", items: selection.items, drafts: selection.drafts })}
+              onBack={() => dispatch({ type: "GO_TO_STEP", step: "prompt" })}
+              onNext={handleOpenPlanEditor}
             />
           )}
 
@@ -1039,6 +1064,7 @@ export const AppInner: React.FC = () => {
               key={`${state.workRevision}-${state.draftRequest.theme}-${state.draftRequest.count}-${state.draftRequest.prompt}`}
               request={state.draftRequest}
               onItemsChange={(items) => dispatch({ type: "SET_DRAFT_REQUEST", request: { ...state.draftRequest!, items } })}
+              onBackToSelection={() => dispatch({ type: "GO_TO_STEP", step: "select" })}
               onBack={() => dispatch({ type: "GO_TO_STEP", step: "prompt" })}
               onGenerate={handleGenerate}
             />

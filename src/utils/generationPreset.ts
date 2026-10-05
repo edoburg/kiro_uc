@@ -73,6 +73,10 @@ export function parsePresetSnapshot(value: unknown): GenerationPresetSnapshot {
 
 /** 許可した条件だけを抽出し、認証情報・画像・実行情報は保存しない。 */
 export function createPresetSnapshot(request: GenerationRequest, options: GenerationOptions): GenerationPresetSnapshot {
+  // v1は選択済みitems（生成順・sourceTemplateId・個別編集）を枚数分だけ保存する。選択途中は保存しない。
+  if ((request.items?.length ?? 0) !== request.count) {
+    throw new Error(`選択中の項目（${request.items?.length ?? 0}件）がスタンプ枚数（${request.count}枚）と一致しないため保存できません。項目の選択で件数を合わせてください。`);
+  }
   return parsePresetSnapshot({
     request: {
       prompt: request.prompt, count: request.count, theme: request.theme ?? "daily", mode: request.mode,

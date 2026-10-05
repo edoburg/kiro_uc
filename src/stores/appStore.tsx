@@ -12,6 +12,7 @@ import type {
   GenerationPreset,
   RepresentativeRole,
   StampImage,
+  StampPlanItem,
   StampSet,
   StampSetInput,
   UploadResult,
@@ -22,6 +23,7 @@ import {
   normalizeStampSet,
   recalculateStampSet,
 } from "../utils/stampSet";
+import { reconcilePlanItems } from "../utils/stampPlan";
 
 /**
  * アプリのグローバル状態（React Context + useReducer）。
@@ -43,6 +45,7 @@ import {
 /** 生成フローの画面ステップ */
 export type FlowStep =
   | "prompt"
+  | "select"
   | "plan"
   | "generating"
   | "preview"
@@ -66,6 +69,11 @@ export interface AppState {
   /** 現在の生成リクエスト */
   currentRequest: GenerationRequest | null;
   draftRequest: GenerationRequest | null;
+  /**
+   * 選択を外したテンプレート／カスタム企画の作業中下書き。再選択時に編集内容を復元する。
+   * 生成要求・生成設定の保存には含めない。テーマ変更と生成設定の読込で破棄する。
+   */
+  templateDrafts: StampPlanItem[];
   generationOptions: GenerationOptions | null;
   workRevision: number;
   /** 生成済み画像一覧 */
@@ -103,6 +111,9 @@ export type AppAction =
   | { type: "UPDATE_CURRENT_REQUEST"; request: GenerationRequest }
   | { type: "SET_DRAFT_REQUEST"; request: GenerationRequest }
   | { type: "UPDATE_DRAFT_REQUEST"; request: GenerationRequest }
+  | { type: "OPEN_TEMPLATE_SELECTION"; request: GenerationRequest }
+  | { type: "UPDATE_TEMPLATE_SELECTION"; items: StampPlanItem[]; drafts: StampPlanItem[] }
+  | { type: "SET_TEMPLATE_DRAFTS"; drafts: StampPlanItem[] }
   | { type: "SET_GENERATION_OPTIONS"; options: GenerationOptions }
   | { type: "LOAD_GENERATION_PRESET"; preset: GenerationPreset }
   | { type: "SET_GENERATED_IMAGES"; images: GeneratedImage[] }
@@ -139,6 +150,7 @@ export const initialAppState: AppState = {
   lineCredentialsConfigured: false,
   currentRequest: null,
   draftRequest: null,
+  templateDrafts: [],
   generationOptions: null,
   workRevision: 0,
   generatedImages: [],
@@ -199,10 +211,21 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case "UPDATE_DRAFT_REQUEST":
       return { ...state, draftRequest: action.request };
+    case "OPEN_TEMPLATE_SELECTION":
+      return { ...state, draftRequest: action.request, step: "select", error: null };
+    case "UPDATE_TEMPLATE_SELECTION":
+      // 生成中は選択を変更しない（選択画面は生成中に表示しないが、遅延イベントも無視する）。
+      if (!state.draftRequest || state.step === "generating") return state;
+      return { ...state, draftRequest: { ...state.draftRequest, items: action.items }, templateDrafts: action.drafts };
+    case "SET_TEMPLATE_DRAFTS":
+      return { ...state, templateDrafts: action.drafts };
     case "SET_GENERATION_OPTIONS":
       return { ...state, generationOptions: action.options };
     case "LOAD_GENERATION_PRESET":
-      return { ...state, draftRequest: action.preset.request, currentRequest: null,
+      // 保存した選択・生成順・編集を復元する。先頭N件へ置き換えず、不正なテンプレートIDはカスタム企画にする。
+      return { ...state, draftRequest: { ...action.preset.request,
+          items: action.preset.request.items && reconcilePlanItems(action.preset.request.theme ?? "daily", action.preset.request.items) },
+        templateDrafts: [], currentRequest: null,
         generationOptions: action.preset.options, workRevision: state.workRevision + 1,
         generatedImages: [], stampSet: null, uploadProgress: null, uploadResult: null,
         generationFailed: false, error: null, step: "prompt", panel: null };

@@ -555,6 +555,14 @@ class LineCredentials:
 
 ---
 
+### Property 21: テンプレート選択の不変条件
+
+*任意の* テーマ・枚数と、選択・解除・項目編集・先頭N件に戻す・選択解除の *任意の* 操作列に対して、選択中の項目数はN以下で、上限時の選択は状態を変えずに案内を返す。positionは0から連番、選択中と下書きを合わせたitem IDは一意、テンプレート由来の項目はカタログ番号順に並び、編集した項目は選択を外して戻しても編集内容を保持する。
+
+**Validates: 追加要件「テンプレート40件からの項目選択」1〜8**
+
+---
+
 ### Property 20: ZIPとアップロード要求は同じ選択画像を参照する
 
 *任意の* 枚数（1〜40）と *任意の* メイン／タブの選択位置に対して、`toExportCreateRequest` と `toUploadStartRequest` は同じ選択IDを送り、ZIP要求内でIDから解決したメイン用・タブ用パスはアップロード要求の `mainImagePath`／`thumbnailPath` と一致し、スタンプ画像の順序は変わらない。
@@ -659,7 +667,7 @@ def test_prompt_history_fifo(prompts):
 - パフォーマンス要件（変換 10 秒以内等）はスモークテストとして別途計測する
 # 項目別企画の設計
 
-`PromptInput` は共通プロンプト（1000文字以下）、テーマ、枚数、スタイル、モードを受け取り、`createStampPlan` で定型企画を作る。`StampPlanEditor` が全項目の意味・表情・ポーズ・小物を編集し、`validateStampPlan` を通過したときだけ `App` が画像生成を始める。企画生成関数は定型データに閉じ、将来の提案方式へ差し替えられる。
+`PromptInput` は共通プロンプト（1000文字以下）、テーマ、枚数、スタイル、モードを受け取り、初期選択として `createStampPlan`（カタログ先頭N件）を使う。`StampTemplateSelector` で生成する項目を選んだあと、`StampPlanEditor` が全項目の意味・表情・ポーズ・小物を編集し、`validateStampPlan` を通過したときだけ `App` が画像生成を始める。企画生成関数は定型データに閉じ、将来の提案方式へ差し替えられる。
 
 `GenerationRequest` の `items` は全枚数分の確定済み企画である。各項目は `id`、`position`、`meaning`、`expression`、`pose`、`prop` を持つ。部分生成でも全件を `GenerationStartRequest` に含め、`count` と `startIndex` で対象範囲を指定する。Electron の `image:generate` と preload はこのオブジェクトを FastAPI `/generate` に透過する。FastAPI は件数（8/16/24/32/40）、位置の連続性、IDの一意性、意味の重複、必須値、項目別100文字上限、対象範囲をSSE開始前に検証する。既存のプロンプト単体要求は後方互換として受け付ける。
 
@@ -730,3 +738,25 @@ IPC契約では `ExportImageRequest`／`UploadImageRequest` に `id`、セット
 FastAPI の `RepresentativeSelectionFields` は、`mainImageId`・`tabImageId` が両方とも省略された旧要求だけ `selection=None` とし、`images[0]` を使う。どちらかが存在する要求では、`null`・片方の欠落・セット外ID・画像IDの欠落／重複を 400 で拒否する。`backend/services/stamp_selection.py` の `resolve_representative_images` を ZIP（`StampExportService`）とアップロード（`/upload`）の両方で使い、選択した派生ファイルが存在し、PNG・規定サイズ（240×240／96×74）・1MB以下であることを確認する。ZIPは `01.png` 以降をスタンプの順で格納し、選択画像の `mainImagePath` を `main.png`、`thumbnailPath` を `tab.png` にする。アップロードは解決結果をアップローダーへ渡し、要求の照合用パスが一致しない場合と選択が不正な場合はSSE開始前に400を返す。アップロード機能が無効な構成でもZIP経路は単独で動作する。
 
 手動トリミング、文字除去、独立したメイン画像の生成は対象外とする。
+
+## テンプレート40件からの項目選択の設計
+
+画面の流れは `prompt → select → plan → generating` とする。`PromptInput` の「スタンプ内容を作成」は `OPEN_TEMPLATE_SELECTION` で `draftRequest` を保存して選択画面へ進む。`StampTemplateSelector` の「企画の編集へ進む」は選択数が枚数と一致するときだけ有効で、`SET_DRAFT_REQUEST` で企画編集へ進む。企画編集には「項目の選択に戻る」「共通設定に戻る」を置く。生成中は選択画面を表示せず、`UPDATE_TEMPLATE_SELECTION` も `generating` 中は無視する。
+
+`src/utils/stampPlan.ts` はカタログと生成企画を分ける。`getStampTemplateCatalog(theme)` は凍結済みの40件の `StampTemplate`（`id`＝`<theme>-tNN`、`catalogNumber`＝1～40、意味・表情・ポーズ・小物）を返す。`createPlanItemFromTemplate` は `id`＝`plan-<templateId>`、`sourceTemplateId`、textEnabled=true、displayText=null の生成項目を作る。`createStampPlan` は先頭N件を作る初期選択であり、従来の呼び出し元と互換性がある。
+
+選択状態は `PlanSelection { items, drafts }` で表す。`items` は `GenerationRequest.items`（生成順・位置0～N-1）そのもので、`drafts` は選択を外した項目の作業中下書き（`AppState.templateDrafts`）とする。下書きは生成要求・生成設定の保存に含めず、テーマ変更と設定読込で破棄する。純粋関数で処理する。
+
+- `selectTemplate`: 別テーマ・未知のIDは拒否する。上限時は状態を変えずに案内を返す。下書きがあれば復元し、なければテンプレートから作る。既存の並びを保ってカタログ番号順の位置へ挿入する。
+- `deselectPlanItem`／`clearPlanSelection`: 項目を下書きへ移す。
+- `resetPlanSelection`: 先頭N件をカタログ順で選び、継続項目と下書きの編集を再利用する。
+- `fillPlanSelection`: 40枚への変更で未選択のテンプレートを追加する。
+- `selectDraftItem`: カスタム企画を末尾に戻す。
+
+`renumberPlanItems` で位置を必ず連番にする。`getPlanSelectionStatus` は不足数・超過数を返す。
+
+`PromptInput` はテーマ変更時に `hasPlanSelectionWork`（初期選択との差または編集の有無）で `window.confirm` を出し、承認時だけ先頭N件へ初期化する。枚数変更ではitemsを保持し、40枚のときだけ `fillPlanSelection` を使う。過不足は入力画面と選択画面に表示する。
+
+`validateStampPlan` は既存の件数・ID・位置・必須値の検証に加えて、sourceTemplateIdがテーマのカタログに存在すること（テーマ未指定の部分検証ではいずれかのカタログ）と、同じテンプレートの重複がないことを検証する。`toGenerationStartRequest` はsourceTemplateIdを除外するため、既存の `startIndex`・`request.items[index]`・FastAPIの連番位置検証（`extra="forbid"`）はセット内の位置だけを扱う。カタログ番号を位置に使う要求はFastAPIでも422になる。未選択の項目は要求に含まれず、画像APIに渡らない。
+
+生成設定はv1のまま、itemsのsourceTemplateId・配列順・個別編集で選択を保存する。`createPresetSnapshot` は選択数と枚数が一致しない作業を理由付きで拒否する。`LOAD_GENERATION_PRESET` は `reconcilePlanItems` で、存在しない・別テーマ・重複のsourceTemplateIdを外してカスタム企画にする。sourceTemplateIdのない旧itemsはそのままカスタム企画として保持し、意味の類似で紐付けない。選択画面はカスタム企画を別欄に表示し、外す・戻す操作に対応する。

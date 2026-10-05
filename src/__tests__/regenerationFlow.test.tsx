@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppInner } from "../App";
 import { AppStoreProvider, initialAppState } from "../stores/appStore";
 import { createStampPlan } from "../utils/stampPlan";
-import type { Config, GenerationRequest } from "../types/index";
+import type { Config, GenerationRequest, StampPlanItem } from "../types/index";
 import type { GenerationStreamPayload } from "../types/window-api";
 
 afterEach(() => {
@@ -15,6 +15,9 @@ const config: Config = {
   aiEngine: "openai", outputDirectory: "C:/out", openaiModel: "gpt-image-2.5-flare",
   openaiQuality: "high", sdEndpoint: "",
 };
+
+/** 生成APIへ送る形（由来のテンプレートIDは送らない）。 */
+function apiItem({ sourceTemplateId: _sourceTemplateId, ...item }: StampPlanItem) { return item; }
 
 function setup(mode: GenerationRequest["mode"] = "batch") {
   const items = createStampPlan("daily", 8);
@@ -49,7 +52,7 @@ describe("Appの個別再生成", () => {
     fireEvent.click(screen.getByRole("button", { name: "この内容で再生成" }));
     await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
     expect(generate.mock.calls[0][0]).toMatchObject({ count: 1, startIndex: 3 });
-    expect(generate.mock.calls[0][0].items[4]).toEqual(items[4]);
+    expect(generate.mock.calls[0][0].items[4]).toEqual(apiItem(items[4]));
     expect(generate.mock.calls[0][0]).not.toHaveProperty("background");
     expect(screen.getByRole("dialog")).toHaveTextContent("生成中（元画像を表示しています）");
     await act(async () => {
@@ -111,8 +114,8 @@ describe("Appの個別再生成", () => {
     expect(sent).toMatchObject({ prompt: "白いアザラシ", count: 1, startIndex: 3, mode: "batch", model: config.openaiModel, quality: config.openaiQuality });
     expect(sent.items).toHaveLength(8);
     expect(sent.items[3]).toMatchObject({ id: items[3].id, position: 3, pose: "仰向けで眠る", prop: "青い毛布", additionalInstructions: "顔を隠さない" });
-    expect(sent.items[0]).toEqual(items[0]);
-    expect(sent.items[4]).toEqual(items[4]);
+    expect(sent.items[0]).toEqual(apiItem(items[0]));
+    expect(sent.items[4]).toEqual(apiItem(items[4]));
     expect(sent.items[3]).toMatchObject({ textEnabled: true, displayText: "おやすみ★" });
     await act(async () => {
       getListener()?.({ streamId: "run-1", event: "progress", data: { completed: 1, total: 1, latestImagePath: null,
@@ -152,6 +155,6 @@ describe("Appの個別再生成", () => {
     expect(remaining).toMatchObject({ count: 7, startIndex: 1 });
     expect(remaining.items[0].additionalInstructions).toBe("朝日を右上に");
     expect(remaining.items[0]).toMatchObject({ textEnabled: false, displayText: "朝だよ！" });
-    expect(remaining.items[1]).toEqual(items[1]);
+    expect(remaining.items[1]).toEqual(apiItem(items[1]));
   });
 });

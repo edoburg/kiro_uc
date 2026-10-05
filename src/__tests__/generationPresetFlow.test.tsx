@@ -45,11 +45,12 @@ describe("Appで生成設定を再利用する", () => {
     expect(screen.getByLabelText("作業の生成品質")).toHaveValue(preset.options.quality);
     expect(api.config.save).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "スタンプ内容を作成" }));
+    fireEvent.click(screen.getByRole("button", { name: "企画の編集へ進む" }));
     expect(within(screen.getByRole("group", { name: "1枚目" })).getByLabelText("伝えたい言葉／意味")).toHaveValue(preset.request.items![0].meaning);
     expect(within(screen.getByRole("group", { name: "1枚目" })).getByLabelText("文字を入れる")).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "画像を生成" }));
     await waitFor(() => expect(api.image.generate).toHaveBeenCalledTimes(1));
-    expect(api.image.generate.mock.calls[0][0]).toMatchObject({ count: 1, startIndex: 0, model: preset.options.model, quality: preset.options.quality, items: preset.request.items });
+    expect(api.image.generate.mock.calls[0][0]).toMatchObject({ count: 1, startIndex: 0, model: preset.options.model, quality: preset.options.quality, items: preset.request.items!.map(({ sourceTemplateId: _sourceTemplateId, ...item }) => item) });
     expect(screen.getByRole("button", { name: "仕事用を読み込み" })).toBeDisabled();
   });
   it("共通入力と企画編集の最新ドラフトを生成せずに保存する", async () => {
@@ -60,6 +61,7 @@ describe("Appで生成設定を再利用する", () => {
     await waitFor(() => expect(api.generationPresets.save).toHaveBeenCalledTimes(1));
     expect(api.generationPresets.save.mock.calls[0][0].snapshot.request.prompt).toBe("共通設定の編集中");
     fireEvent.click(screen.getByRole("button", { name: "スタンプ内容を作成" }));
+    fireEvent.click(screen.getByRole("button", { name: "企画の編集へ進む" }));
     const fourth = screen.getByRole("group", { name: "4枚目" });
     fireEvent.change(within(fourth).getByLabelText("ポーズ"), { target: { value: "仰向けで眠る" } });
     fireEvent.change(within(fourth).getByLabelText("追加の指示（任意・500文字以内）"), { target: { value: "青い毛布" } });

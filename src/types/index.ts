@@ -25,12 +25,28 @@ export interface StampPlanItem {
   prop: string;
   /** この1枚だけに適用する補足指示（最大500文字）。 */
   additionalInstructions?: string;
-  /** 将来のテンプレート選択用。保存するが画像生成APIには送らない。 */
+  /**
+   * 由来のテンプレートID（例: daily-t12）。生成項目ID・生成位置とは別。
+   * 未指定はカスタム企画（旧保存データ等）。保存するが画像生成APIには送らない。
+   */
   sourceTemplateId?: string;
   /** 未指定は旧データ互換で文字なし。 */
   textEnabled?: boolean;
   /** null/未指定は意味を使用。空文字は明示的な空欄。 */
   displayText?: string | null;
+}
+
+/** テーマごとのテンプレートカタログ（40件）の1項目。生成企画（StampPlanItem）とは別のデータ。 */
+export interface StampTemplate {
+  /** テーマ内／テーマ間で一意の安定ID（例: daily-t01）。 */
+  id: string;
+  theme: StampTheme;
+  /** カタログ内の元の番号（1～40）。生成位置 position とは無関係。 */
+  catalogNumber: number;
+  meaning: string;
+  expression: string;
+  pose: string;
+  prop: string;
 }
 
 /** OpenAI GPT Image 2.5 の生成品質。 */

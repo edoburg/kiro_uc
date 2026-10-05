@@ -5,10 +5,11 @@ import type {
   GenerationStyle,
   PromptHistory,
   StampCount,
+  StampPlanItem,
   StampTheme,
 } from "../types/index";
 import { validatePrompt, validatePromptLength } from "../utils/validation";
-import { createStampPlan } from "../utils/stampPlan";
+import { createStampPlan, fillPlanSelection, hasPlanSelectionWork } from "../utils/stampPlan";
 
 /** プロンプト最大文字数（LINE 規格ではなくアプリ仕様上の上限） */
 const MAX_PROMPT_LENGTH = 1000;
@@ -37,6 +38,9 @@ export interface PromptInputProps {
   history: PromptHistory[];
   initialRequest?: GenerationRequest | null;
   onDraftChange?: (request: GenerationRequest) => void;
+  /** 選択を外した項目の作業中下書き。テーマ変更時の確認と、40枚選択時の復元に使う。 */
+  templateDrafts?: StampPlanItem[];
+  onTemplateDraftsChange?: (drafts: StampPlanItem[]) => void;
 }
 
 /**
@@ -58,6 +62,8 @@ const PromptInput: React.FC<PromptInputProps> = ({
   history,
   initialRequest,
   onDraftChange,
+  templateDrafts = [],
+  onTemplateDraftsChange,
 }) => {
   const [draft, setDraft] = useState<GenerationRequest>(() => initialRequest ?? {
     prompt: "", count: 8, mode: "batch", theme: "daily", items: createStampPlan("daily", 8),
@@ -67,10 +73,27 @@ const PromptInput: React.FC<PromptInputProps> = ({
   const style = draft.style ?? "";
   const updateDraft = (change: Partial<GenerationRequest>): void => {
     const next = { ...draft, ...change };
-    if (next.count !== count || next.theme !== draft.theme) next.items = createStampPlan(next.theme ?? "daily", next.count);
+    const selection = { items: draft.items ?? [], drafts: templateDrafts };
+    if ((next.theme ?? "daily") !== theme) {
+      // テーマ変更は別カタログとして初期化する。選択・編集が失われる場合は確認する。
+      if (hasPlanSelectionWork(theme, count, selection) &&
+        !window.confirm("テーマを変更すると、項目の選択と企画の編集内容が新しいテーマの先頭の項目に置き換わります。変更しますか？")) return;
+      next.items = createStampPlan(next.theme ?? "daily", next.count);
+      onTemplateDraftsChange?.([]);
+    } else if (next.count !== count) {
+      // 枚数変更では選択を切り捨てない。40枚は全件を選ぶため、未選択テンプレートを追加する。
+      if (next.count === 40) {
+        const filled = fillPlanSelection(theme, 40, selection);
+        next.items = filled.items;
+        onTemplateDraftsChange?.(filled.drafts);
+      } else {
+        next.items = draft.items ?? createStampPlan(theme, next.count);
+      }
+    }
     setDraft(next);
     onDraftChange?.(next);
   };
+  const selectedCount = draft.items?.length ?? 0;
   /** 送信を試みたか（空エラーは送信時に表示する - 要件 1.3） */
   const [submitAttempted, setSubmitAttempted] = useState<boolean>(false);
 
@@ -133,8 +156,9 @@ const PromptInput: React.FC<PromptInputProps> = ({
         )}
       </div>
 
-      <p>ここでは外見と画風を指定します。言葉／意味、表情、ポーズ、小物、画像に描く文字は次の企画一覧で編集できます。</p>
-      {initialRequest && <p>テーマや枚数を変更して内容を作り直すと、企画一覧で編集した内容は消えます。</p>}
+      <p>ここでは外見と画風を指定します。次の画面で、選んだテーマの40件から生成する項目を選び、言葉／意味、表情、ポーズ、小物、画像に描く文字を企画一覧で編集できます。</p>
+      <p>テーマを変更すると、項目の選択と企画の編集内容は新しいテーマの先頭の項目に置き換わります（変更がある場合は確認します）。枚数を変更しても選択は保持され、次の画面で過不足を調整できます。</p>
+      <p id="prompt-selection-status">現在の選択：{selectedCount}／{count}件{selectedCount === count ? "" : `（${selectedCount < count ? `あと${count - selectedCount}件` : `${selectedCount - count}件多い`}・次の画面で調整してください）`}</p>
       <div className="prompt-input__field">
         <label htmlFor="stamp-theme">テーマ</label>
         <select id="stamp-theme" value={theme} onChange={(event) => updateDraft({ theme: event.target.value as StampTheme })}>

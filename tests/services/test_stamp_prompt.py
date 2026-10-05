@@ -143,3 +143,65 @@ async def test_regeneration_sends_only_target_extra_instruction_to_adapter():
     assert "青い毛布" in prompts[0]
     assert "顔を隠さない" in prompts[0]
     assert "朝日を右上に" not in prompts[0]
+
+
+# --- テンプレート40件から選んだ生成セット（位置は選択セット内の0～N-1） ---
+
+SELECTED_NUMBERS = [2, 4, 5, 7, 12, 21, 33, 40]
+
+
+def selected_plan():
+    """カタログNo.2〜No.40から選んだ8件。IDは由来を含むが、位置は生成セット内の連番。"""
+    return [
+        {"id": f"plan-daily-t{number:02d}", "position": position, "meaning": f"言葉{number}番",
+         "expression": "笑顔", "pose": "手を振る", "prop": ""}
+        for position, number in enumerate(SELECTED_NUMBERS)
+    ]
+
+
+def test_accepts_selected_templates_with_consecutive_set_positions():
+    validated = GenerateRequest.model_validate(payload(selected_plan()))
+    assert [item.position for item in validated.items] == list(range(8))
+    assert validated.items[7].id == "plan-daily-t40"
+
+
+@pytest.mark.parametrize("mutation", [
+    # カタログ番号（No.40 → 39）を生成位置に使う要求
+    lambda items: [*items[:7], {**items[7], "position": 39}],
+    # 選択セット内の位置の欠番
+    lambda items: [{**item, "position": item["position"] + (1 if index >= 4 else 0)} for index, item in enumerate(items)],
+    # 同じ生成項目IDの重複選択
+    lambda items: [*items[:7], {**items[7], "id": items[0]["id"]}],
+    # 件数不一致（8枚の要求に9件）
+    lambda items: [*items, {**items[0], "id": "plan-daily-t39", "position": 8, "meaning": "言葉39番"}],
+    # 由来のカタログIDは画像生成APIへ送らない（未知フィールドとして拒否）
+    lambda items: [{**item, "sourceTemplateId": f"daily-t{SELECTED_NUMBERS[index]:02d}"} for index, item in enumerate(items)],
+])
+def test_rejects_invalid_selected_set(mutation):
+    with pytest.raises(ValidationError):
+        GenerateRequest.model_validate(payload(mutation(selected_plan())))
+
+
+def test_rejects_generation_position_outside_selected_set():
+    # 8件の選択セットでカタログ番号の位置（39）から生成しようとする要求
+    with pytest.raises(ValidationError):
+        GenerateRequest.model_validate(payload(selected_plan(), count=1, startIndex=39))
+    with pytest.raises(ValidationError):
+        GenerateRequest.model_validate(payload(selected_plan(), count=1, startIndex=8))
+
+
+async def test_regenerating_last_selected_item_uses_set_position_not_catalog_number():
+    adapter = MagicMock()
+    prompts = []
+
+    async def generate(**kwargs):
+        prompts.append(kwargs["prompt"])
+        yield GenerationProgress(completed=1, total=1, latest_image_path="image.png", error=None, index=0)
+
+    adapter.generate.side_effect = generate
+    request = GenerationRequest(prompt="白いアザラシ", count=1, start_index=7, items=selected_plan())
+    results = [progress async for progress in ImageGeneratorService(adapter).generate_batch(request)]
+    assert [result.index for result in results] == [7]
+    assert len(prompts) == 1
+    assert "言葉40番" in prompts[0]
+    assert all(f"言葉{number}番" not in prompts[0] for number in SELECTED_NUMBERS[:7])
