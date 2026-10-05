@@ -7,7 +7,8 @@ import {
   OpenDialogOptions,
   WebContents,
 } from "electron";
-import { spawn, ChildProcess } from "child_process";
+import { ChildProcess } from "child_process";
+import { getBackendLaunch, launchBackend } from "./backend";
 import * as path from "path";
 import * as http from "http";
 import type {
@@ -69,6 +70,7 @@ import type {
 
 // --- Python FastAPI backend process ---
 let pythonProcess: ChildProcess | null = null;
+let backendStartupError: Error | null = null;
 const BACKEND_PORT = 8765;
 const BACKEND_HOST = "127.0.0.1";
 const BACKEND_BASE_URL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
@@ -87,26 +89,16 @@ function nextStreamId(prefix: string): string {
 /**
  * Python FastAPI バックエンド子プロセスを起動する。
  */
-function startPythonBackend(): void {
-  const pythonExecutable = process.platform === "win32" ? "python" : "python3";
-
-  pythonProcess = spawn(
-    pythonExecutable,
-    [
-      "-m",
-      "uvicorn",
-      "backend.main:app",
-      "--host",
-      BACKEND_HOST,
-      "--port",
-      String(BACKEND_PORT),
-      "--no-access-log",
-    ],
-    {
-      // バックエンドをリポジトリルート（backend パッケージの親）から実行する
-      cwd: path.join(__dirname, ".."),
-    }
+async function startPythonBackend(): Promise<void> {
+  backendStartupError = null;
+  pythonProcess = await launchBackend(
+    getBackendLaunch(app.isPackaged, process.resourcesPath, path.join(__dirname, ".."))
   );
+  const child = pythonProcess;
+
+  child.on("error", (error) => {
+    backendStartupError = error;
+  });
 
   pythonProcess.stdout?.on("data", (data: Buffer) => {
     console.log(`[Backend] ${data.toString().trim()}`);
@@ -116,9 +108,10 @@ function startPythonBackend(): void {
     console.error(`[Backend Error] ${data.toString().trim()}`);
   });
 
-  pythonProcess.on("close", (code: number | null) => {
+  child.on("close", (code: number | null) => {
     console.log(`[Backend] Process exited with code ${code}`);
-    pythonProcess = null;
+    backendStartupError = new Error(`バックエンドが終了しました (code: ${code})`);
+    if (pythonProcess === child) pythonProcess = null;
   });
 }
 
@@ -128,6 +121,10 @@ function startPythonBackend(): void {
  */
 async function waitForBackend(maxRetries = 40, intervalMs = 500): Promise<void> {
   for (let i = 0; i < maxRetries; i++) {
+    if (backendStartupError) throw backendStartupError;
+    if (!pythonProcess || pythonProcess.exitCode !== null || pythonProcess.signalCode !== null) {
+      throw new Error("バックエンドが起動前に終了しました。");
+    }
     try {
       await new Promise<void>((resolve, reject) => {
         const req = http.get(`${BACKEND_BASE_URL}/health`, (res) => {
@@ -540,13 +537,18 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  startPythonBackend();
-
   try {
+    await startPythonBackend();
     await waitForBackend();
     console.log("[Main] Backend is ready");
   } catch (err) {
     console.error("[Main] Backend startup failed:", err);
+    dialog.showErrorBox(
+      "バックエンドの起動に失敗しました",
+      err instanceof Error ? err.message : String(err)
+    );
+    app.quit();
+    return;
   }
 
   createWindow();

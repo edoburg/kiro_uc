@@ -1,0 +1,2 @@
+# Install after requirements.txt in the build machine's virtual environment.
+pyinstaller==6.22.3

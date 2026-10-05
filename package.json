@@ -5,7 +5,8 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && electron-builder",
+    "build": "tsc && vite build && npm run build:backend && electron-builder",
+    "build:backend": "node scripts/build-backend.cjs",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest --run",
@@ -50,14 +51,14 @@
     },
     "files": [
       "dist-electron/**/*",
-      "dist/**/*",
-      "backend/**/*",
-      "requirements.txt"
+      "dist/index.html",
+      "dist/assets/**/*"
     ],
     "extraResources": [
       {
-        "from": "backend",
-        "to": "backend"
+        "from": "dist-backend/line-stamp-backend",
+        "to": "backend",
+        "filter": ["**/*"]
       }
     ],
     "mac": {
