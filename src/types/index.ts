@@ -15,6 +15,7 @@ export type GenerationStyle = "かわいい" | "クール" | "ゆるい" | "リ�
 /** 生成モード */
 export type GenerationMode = "batch" | "preview_approval";
 export type StampTheme = "daily" | "work";
+export type PreviewBackground = "checker" | "white" | "black" | "gray" | "custom";
 export interface StampPlanItem {
   id: string;
   position: number;
@@ -72,6 +73,7 @@ export interface GeneratedImage {
   /** スタンプセット内のインデックス（0 始まり） */
   index: number;
   itemId?: string;
+  generationItem?: StampPlanItem;
   /** この画像の生成に実際に使った設定。次回用条件とは独立。 */
   textSettings?: { textEnabled: boolean; displayText: string | null };
   /** プレビュー表示用の base64 data URL */

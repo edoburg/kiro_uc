@@ -41,6 +41,33 @@ function setup(mode: GenerationRequest["mode"] = "batch") {
 }
 
 describe("Appの個別再生成", () => {
+  it("詳細から対象1枚を再生成し、失敗後の再試行成功で詳細と一覧を同時に更新する", async () => {
+    const { generate, items, getListener } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "画像 4 を大きく表示" }));
+    fireEvent.change(screen.getByLabelText("ポーズ"), { target: { value: "仰向けで眠る" } });
+    fireEvent.change(screen.getByLabelText("画像に描く文字"), { target: { value: "ぐっすり！" } });
+    fireEvent.click(screen.getByRole("button", { name: "この内容で再生成" }));
+    await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+    expect(generate.mock.calls[0][0]).toMatchObject({ count: 1, startIndex: 3 });
+    expect(generate.mock.calls[0][0].items[4]).toEqual(items[4]);
+    expect(generate.mock.calls[0][0]).not.toHaveProperty("background");
+    expect(screen.getByRole("dialog")).toHaveTextContent("生成中（元画像を表示しています）");
+    await act(async () => {
+      getListener()?.({ streamId: "run-1", event: "done", data: { status: "failed", total: 1, succeeded: 0, failed: 1 } });
+    });
+    expect(screen.getByRole("dialog")).toHaveTextContent("表示画像に使った文字：おやすみ");
+    expect(screen.getByRole("dialog")).toHaveTextContent("次回の再生成条件：おやすみ ／ 仰向けで眠る ／ ぐっすり！");
+    fireEvent.click(screen.getByRole("button", { name: "この内容で再生成" }));
+    await waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      getListener()?.({ streamId: "run-2", event: "progress", data: { completed: 1, total: 1, latestImagePath: "new.png", index: 3, dataUrl: "data:image/png;base64,new", error: null } });
+      getListener()?.({ streamId: "run-2", event: "done", data: { status: "done", total: 1, succeeded: 1, failed: 0 } });
+    });
+    expect(screen.getAllByAltText("生成されたスタンプ画像 4", { exact: true })).toHaveLength(2);
+    screen.getAllByAltText("生成されたスタンプ画像 4").forEach((image) => expect(image).toHaveAttribute("src", "data:image/png;base64,new"));
+    expect(screen.getByRole("dialog")).toHaveTextContent("表示画像の生成条件：おやすみ ／ 安心して眠る ／ 仰向けで眠る");
+    expect(screen.getByRole("dialog")).toHaveTextContent("表示画像に使った文字：ぐっすり！");
+  });
   it("成功時は対象画像だけを差し替え、削除後も最新条件で再生成する", async () => {
     const { generate, getListener } = setup();
     fireEvent.click(screen.getByRole("button", { name: "画像 4 を再生成" }));

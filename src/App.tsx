@@ -222,6 +222,8 @@ export const AppInner: React.FC = () => {
           image: {
             index: data.index,
             itemId: run?.request.items?.[data.index]?.id,
+            generationItem: run?.request.items?.[data.index]
+              ? { ...run.request.items[data.index] } : undefined,
             textSettings: {
               textEnabled: run?.request.items?.[data.index]?.textEnabled ?? false,
               displayText: run?.request.items?.[data.index]?.textEnabled

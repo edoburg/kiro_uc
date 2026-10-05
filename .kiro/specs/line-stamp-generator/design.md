@@ -664,6 +664,18 @@ def test_prompt_history_fifo(prompts):
 
 `StampPlanItem.additionalInstructions?` は既存データとの互換性を保つ。FastAPI `StampPlanItemPayload.additional_instructions` は既定値空文字、最大500文字で、camelCase 入力を受ける。サービスへは snake_case の dict を渡す。`build_stamp_prompt` は対象の最新の意味・表情・ポーズ・小物を置き換えて組み立て、空でない追加指示だけを独立節として挿入する。先頭項目の追加指示を他項目へ流用しない。
 
+## 透過確認と拡大レビューの設計
+
+`previewBackgroundStore` はZustandで表示背景と任意色を起動中だけ共有し、永続化やGenerationRequestへの追加は行わない。`PreviewBackgroundControls` と `PreviewImage` を生成一覧・詳細・StampSetEditorの3種の変換後プレビューに使う。画像の背後のdivにCSS背景色と市松模様を置き、imgのsrcや画素を変更しない。
+
+`ImagePreviewGrid` はレビュー対象をitem ID（旧データでは絶対位置から作るキー）で保持し、毎描画で最新の画像・項目を解決する。前後移動は現在の企画順と対象IDから求める。企画項目がなくなればモーダルを閉じ、画像だけなくなれば未生成として同じ項目を表示する。React portalでbodyに `ImageReviewDialog` を表示する。
+
+モーダルはbodyの他要素にinertを適用して背景操作を止め、bodyスクロールを抑制する。Tab/Shift+Tabを循環し、Escapeと閉じる操作に対応する。アンマウント時にinert・スクロール状態を復元して、存在する起点へフォーカスを戻す。画像は固定した表示領域内でobject-fit:containにより全体表示し、表示用コンテナの幅・高さだけを50～400%へ変更する。拡大時は縦横スクロールで端を確認する。モーダル自体も狭い画面では縦スクロールする。
+
+詳細内の `RegenerationEditor` は既存のローカルドラフト、StampTextSettings、validateStampPlanを再利用する。初期ドラフトとの比較で未確定編集を通知し、閉じる・前後移動・キャンセルでwindow.confirmによる破棄確認を行う。キャンセルはドラフトを確定済み値に戻す。確定は既存のonRegenerateWithEditsを呼び、モーダルを開いたまま旧成功画像と生成中表示を提供する。未承認の後続項目と生成中の再送信を抑制する。
+
+Appの成功イベント処理は送信要求の対象StampPlanItemを `GeneratedImage.generationItem` にコピーする。元画像を保持する既存の失敗処理によってこのスナップショットも維持され、詳細では表示画像の条件と次回用の最新条件を別々に表示する。既存データには記録なしと表示する。変換後は表示背景のみを提供するため、変換済み結果の再生成や古い出力の再利用に新たな経路を作らない。
+
 ## 画像ごとの描き文字の設計
 
 `StampPlanItem` に互換用の任意フィールド `textEnabled?: boolean` と `displayText?: string | null` を追加する。新規作成関数だけがtrue/nullを設定し、`normalizeStampPlanItem` は旧項目をfalse/nullへ正規化する。空文字とfalseは維持し、`resolveDisplayText` はnullish値だけmeaningで補いtrimする。100文字上限はUnicodeコードポイントで数える。企画の永続化機能は現状存在せず、要求・編集ドラフト・IPCスナップショットで設定を保持する。

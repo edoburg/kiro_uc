@@ -1,6 +1,10 @@
 import React from "react";
 import type { GeneratedImage, GenerationMode, StampPlanItem } from "../types/index";
 import RegenerationEditor from "./RegenerationEditor";
+import { createPortal } from "react-dom";
+import PreviewImage from "./PreviewImage";
+import PreviewBackgroundControls from "./PreviewBackgroundControls";
+import ImageReviewDialog from "./ImageReviewDialog";
 
 /**
  * ImagePreviewGrid の Props。
@@ -75,6 +79,16 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
   approvalGranted = false,
 }) => {
   const [editingIndex, setEditingIndex] = React.useState<number | null>(null);
+  const [reviewId, setReviewId] = React.useState<string | null>(null);
+  const displayed = items ? items.map((item) => images.find((image) => image.itemId ? image.itemId === item.id : image.index === item.position) ?? {
+    index: item.position, itemId: item.id, dataUrl: "", tempFilePath: "", status: "pending" as const,
+  }) : images;
+  const imageId = (image: GeneratedImage) => image.itemId ?? `position-${image.index}`;
+  const reviewPosition = displayed.findIndex((image) => imageId(image) === reviewId);
+  const reviewImage = displayed[reviewPosition];
+  React.useEffect(() => {
+    if (reviewId && reviewPosition < 0) setReviewId(null);
+  }, [reviewId, reviewPosition]);
   const regenerationButtons = React.useRef<Record<number, HTMLButtonElement | null>>({});
   const closeEditor = (index: number): void => {
     setEditingIndex(null);
@@ -116,6 +130,18 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
 
   return (
     <div className="image-preview-grid">
+      <PreviewBackgroundControls />
+      {reviewImage && createPortal(<ImageReviewDialog key={reviewId}
+        image={reviewImage}
+        item={items?.find((item) => reviewImage.itemId ? item.id === reviewImage.itemId : item.position === reviewImage.index)}
+        items={items} isGenerating={isGenerating}
+        canGenerate={mode === "batch" || approvalGranted || reviewImage.index === 0}
+        hasPrevious={reviewPosition > 0} hasNext={reviewPosition < displayed.length - 1}
+        onClose={() => setReviewId(null)}
+        onNavigate={(direction) => setReviewId(imageId(displayed[reviewPosition + direction]))}
+        onRegenerate={() => onRegenerate(reviewImage.index)}
+        onConfirm={onRegenerateWithEdits ? (edited) => onRegenerateWithEdits(reviewImage.index, edited) : undefined}
+      />, document.body)}
       {/* 生成進捗（完了枚数 / 全体枚数）を 1 秒以内の更新間隔で表示（要件 2.5） */}
       <div
         className="generation-progress"
@@ -131,12 +157,12 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
 
       {/* 生成画像のグリッド表示（要件 2.6） */}
       <ul className="preview-grid" aria-label="生成画像一覧">
-        {(items ? items.map((item) => images.find((image) => image.itemId ? image.itemId === item.id : image.index === item.position) ?? {
-          index: item.position, itemId: item.id, dataUrl: "", tempFilePath: "", status: "pending" as const,
-        }) : images).map((image) => (
+        {displayed.map((image) => (
           <li key={image.itemId ?? image.index} className="preview-item">
             {items && <p className="preview-item-label">{(image.itemId ? items.find((item) => item.id === image.itemId) : items.find((item) => item.position === image.index))?.meaning}</p>}
             {image.dataUrl && <p className="preview-item-text">生成に使った文字：{image.textSettings?.textEnabled ? `表示文字：${image.textSettings.displayText}` : "文字なし"}</p>}
+            <button type="button" className="review-open-button" disabled={editingIndex !== null} aria-label={`画像 ${image.index + 1} を大きく表示`} onClick={() => setReviewId(imageId(image))}>大きく表示</button>
+            {image.dataUrl && image.status !== "done" && <button type="button" className="preview-image-button" aria-label={`画像 ${image.index + 1} を確認`} onClick={() => setReviewId(imageId(image))}><PreviewImage className="preview-image" src={image.dataUrl} alt={`生成されたスタンプ画像 ${image.index + 1}`} /></button>}
             {image.status === "error" ? (
               // 個別画像のエラー状態と再試行ボタン（要件 2.8）
               <div className="preview-item-error" role="alert">
@@ -156,11 +182,11 @@ const ImagePreviewGrid: React.FC<ImagePreviewGridProps> = ({
               </div>
             ) : image.status === "done" ? (
               <>
-                <img
+                <button type="button" className="preview-image-button" disabled={editingIndex !== null} aria-label={`画像 ${image.index + 1} を確認`} onClick={() => setReviewId(imageId(image))}><PreviewImage
                   className="preview-image"
                   src={image.dataUrl}
                   alt={`生成されたスタンプ画像 ${image.index + 1}`}
-                />
+                /></button>
                 <div className="preview-item-actions">
                   <button
                     type="button"

@@ -1,4 +1,6 @@
 import React, { useMemo, useRef, useState } from "react";
+import PreviewImage from "./PreviewImage";
+import PreviewBackgroundControls from "./PreviewBackgroundControls";
 import type { StampSet } from "../types/index";
 import {
   validateCopyright,
@@ -312,6 +314,7 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
         </div>
       )}
 
+      <PreviewBackgroundControls />
       {/* --- スタンプ画像プレビュー一覧（要件 4.1） --- */}
       <ul className="stamp-set-editor__grid" aria-label="スタンプ画像一覧">
         {stampSet.images.map((image, index) => {
@@ -323,7 +326,7 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
               <div className="stamp-set-editor__previews">
                 <figure className="stamp-set-editor__preview-group">
                   <div className="stamp-set-editor__preview-frame">
-                    <img
+                    <PreviewImage
                       className="stamp-set-editor__preview stamp-set-editor__preview--stamp"
                       src={image.stampPreviewUrl || image.stampPath}
                       alt={`スタンプ画像 ${index + 1}`}
@@ -333,7 +336,7 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
                 </figure>
                 <figure className="stamp-set-editor__preview-group">
                   <div className="stamp-set-editor__preview-frame">
-                    <img
+                    <PreviewImage
                       className="stamp-set-editor__preview stamp-set-editor__preview--main"
                       src={image.mainImagePreviewUrl || image.mainImagePath}
                       alt={`メイン画像 ${index + 1}`}
@@ -343,7 +346,7 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
                 </figure>
                 <figure className="stamp-set-editor__preview-group">
                   <div className="stamp-set-editor__preview-frame">
-                    <img
+                    <PreviewImage
                       className="stamp-set-editor__preview stamp-set-editor__preview--thumb"
                       src={image.thumbnailPreviewUrl || image.thumbnailPath}
                       alt={`サムネイル画像 ${index + 1}`}

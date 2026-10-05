@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { StampPlanItem } from "../types/index";
 import { validateStampPlan } from "../utils/stampPlan";
 import StampTextSettings from "./StampTextSettings";
@@ -8,11 +8,14 @@ interface Props {
   items: StampPlanItem[];
   onCancel: () => void;
   onConfirm: (item: StampPlanItem) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  handleEscape?: boolean;
+  autoFocus?: boolean;
 }
 
 /** レビュー中の1枚に対する編集ドラフト。確定までは企画を変更しない。 */
-const RegenerationEditor: React.FC<Props> = ({ item, items, onCancel, onConfirm }) => {
-  const [draft, setDraft] = useState(() => ({
+const RegenerationEditor: React.FC<Props> = ({ item, items, onCancel, onConfirm, onDirtyChange, handleEscape = true, autoFocus = true }) => {
+  const [initial] = useState(() => ({
     meaning: item.meaning,
     expression: item.expression,
     pose: item.pose,
@@ -21,6 +24,9 @@ const RegenerationEditor: React.FC<Props> = ({ item, items, onCancel, onConfirm 
     textEnabled: item.textEnabled ?? false,
     displayText: item.displayText ?? null,
   }));
+  const [draft, setDraft] = useState(initial);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const [attempted, setAttempted] = useState(false);
   const candidate: StampPlanItem = { ...item, ...draft };
   const errors = validateStampPlan({
@@ -41,11 +47,11 @@ const RegenerationEditor: React.FC<Props> = ({ item, items, onCancel, onConfirm 
   };
 
   return <form className="regeneration-editor" aria-label={`${item.meaning}の再生成条件`} onSubmit={submit} onKeyDown={(event) => {
-    if (event.key === "Escape") { event.preventDefault(); onCancel(); }
+    if (handleEscape && event.key === "Escape") { event.preventDefault(); onCancel(); }
   }} noValidate>
     <p>この1枚の条件を編集します。共通のキャラクター設定と画風は維持されます。</p>
     <label>伝えたい言葉／意味
-      <input autoFocus value={draft.meaning} maxLength={100} onChange={(event) => update("meaning", event.target.value)} />
+      <input autoFocus={autoFocus} value={draft.meaning} maxLength={100} onChange={(event) => update("meaning", event.target.value)} />
     </label>
     <label>表情
       <input value={draft.expression} maxLength={100} onChange={(event) => update("expression", event.target.value)} />

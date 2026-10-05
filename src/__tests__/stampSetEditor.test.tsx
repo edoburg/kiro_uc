@@ -16,9 +16,11 @@ import StampSetEditor, {
   type StampSetEditorProps,
 } from "../components/StampSetEditor";
 import type { StampImage, StampSet } from "../types/index";
+import { usePreviewBackground } from "../stores/previewBackgroundStore";
 
 afterEach(() => {
   cleanup();
+  usePreviewBackground.setState({ background: "checker" });
   vi.restoreAllMocks();
 });
 
@@ -80,6 +82,21 @@ function renderEditor(
 }
 
 describe("StampSetEditor - タイトルバリデーション表示（要件 4.2）", () => {
+  it("変換後の3種の画像はCSS背景だけを共有し、元の出力パスとURLでエクスポートする", () => {
+    const stampSet = makeStampSet();
+    const original = JSON.stringify(stampSet);
+    const handlers = renderEditor(stampSet);
+    fireEvent.change(screen.getByLabelText("表示背景"), { target: { value: "black" } });
+    for (const name of ["スタンプ画像 1", "メイン画像 1", "サムネイル画像 1"]) {
+      expect(screen.getByAltText(name).parentElement).toHaveStyle({ backgroundColor: "#000000" });
+    }
+    expect(screen.getByAltText("スタンプ画像 1")).toHaveAttribute("src", stampSet.images[0].stampPreviewUrl);
+    expect(handlers.onExport).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "エクスポート（ZIP保存）" }));
+    expect(handlers.onExport).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(stampSet)).toBe(original);
+    expect(handlers.onReplaceImage).not.toHaveBeenCalled();
+  });
   it("空タイトルはエラーメッセージを表示する", () => {
     renderEditor(makeStampSet({ title: "" }));
     const alerts = screen.getAllByRole("alert");
