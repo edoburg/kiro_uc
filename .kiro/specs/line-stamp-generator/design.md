@@ -664,6 +664,22 @@ def test_prompt_history_fifo(prompts):
 
 `StampPlanItem.additionalInstructions?` は既存データとの互換性を保つ。FastAPI `StampPlanItemPayload.additional_instructions` は既定値空文字、最大500文字で、camelCase 入力を受ける。サービスへは snake_case の dict を渡す。`build_stamp_prompt` は対象の最新の意味・表情・ポーズ・小物を置き換えて組み立て、空でない追加指示だけを独立節として挿入する。先頭項目の追加指示を他項目へ流用しない。
 
+## 生成設定の保存・読み込みの設計
+
+`GenerationPreset` はschemaVersion:1、UUID、名前、ISO日時、request（共通条件と全items）、options（モデル・品質）を持つ。`GenerationPresetSnapshot` には認証・画像・実行情報を含めない。`createPresetSnapshot` が許可項目のみコピーし、共有の `parsePresetSnapshot` と `parseGenerationPreset` が型とサイズに対応する構造制限を検証する。項目位置は配列順の0始まり連番、項目IDは100文字以下のASCII安定IDで一意とする。保存名は1～100文字で日本語・パス区切り文字も許すが、制御文字は拒否し、パスに使わない。
+
+`electron/generationPresets.ts` のリポジトリは `app.getPath("userData")/generation-presets/<UUID>.json` に保存する。メインプロセスにlist/load/save/deleteの4チャネルを登録し、preloadの `window.api.generationPresets` からのみ呼ぶ。汎用ファイル書込APIは公開しない。変更操作は直列化し、一時ファイルへwrite→fsync→close→renameする。失敗時は一時ファイルだけを片付け、元ファイルを維持する。上書きは元のIDと作成日時を維持する。listは各ファイルを個別検証し、正常な要約と問題のあるIDを分けて返す。シンボリックリンクと256KiB超のファイルを拒否し、破損したファイルで全一覧を止めない。
+
+保存可能性の検証は生成可能性と分ける。1000文字以下の空プロンプトや項目の空欄・重複は保存可能で、生成時はPromptInputとvalidateStampPlanの既存検証を行う。意味・表情・ポーズ・小物は各100 UTF-16文字、追加指示500文字、描き文字100 Unicodeコードポイントを上限とする。旧項目の文字設定はnormalizeStampPlanItemと同じfalse/null既定値を使い、明示的なfalseと空文字は保持する。最初の保存形式はv1のみで、未知バージョンを拒否する。
+
+`PromptInput` は入力変更をUPDATE_DRAFT_REQUESTへ即時通知する。親が保存するdraftRequestとフォームを同期し、SET_DRAFT_REQUESTで企画へ進む。企画は項目編集を親へ通知し、レビューはUPDATE_CURRENT_REQUESTで確定した条件だけを保存対象にする。読み込みはLOAD_GENERATION_PRESETの単一アクションでdraftRequest・作業用モデル品質・画面を復元し、currentRequestと画像・変換・アップロード結果をリセットする。workRevisionをキーにフォームを作り直すことで同名・同テーマ・同枚数の読込でもローカルドラフトを正しく復元する。保存のためにcreateStampPlanを再実行しない。
+
+`GenerationPresetPanel` は全フローで現在の条件を保存し、選択中のIDと成功した保存スナップショットを保持する。新規保存はIDを指定せず、上書きは選択中IDを指定する。一覧の別名保存は保存済みスナップショットのコピーを作り、現在の編集を切り替えない。保存後に現在の入力が変われば未保存と表示する。失敗時は選択中IDや成功済みの基準を変更しない。読込は未保存編集・生成結果の置換を確認し、成功後だけ作業を切り替える。非同期操作のbusy状態と同期refで生成との競合を防ぐ。生成・変換・出力中は保存／読込とモデル品質切替を無効にする。モーダルの未確定編集は既存のローカルドラフトのままであり、保存対象にはならない。
+
+作業用 `generationOptions` はConfigとは別に保持する。未選択時だけConfigのモデル品質を既定値にし、読込後や作業用選択後はその値をtoGenerationStartRequestへ渡す。Config保存APIは呼ばない。各項目のsourceTemplateIdはv1内の任意メタデータとして保存でき、生成API要求では除外する。項目配列が選択と並び順のスナップショットになる。将来、セット単位の選択IDなどを追加するときはschemaVersionを上げて許可フィールドと移行関数を追加する。
+
+別名保存の入力はブラウザー標準のpromptを使わず、一覧直下のアプリ内フィールドセットで行う。コピー元IDと入力名をローカルに保持し、確定前に名前を検証する。空欄ではIPCを呼ばない。書込失敗時はコピー元と入力名を維持し、キャンセルではIPCを呼ばず現在の作業を保持する。成功時だけ入力欄を閉じる。
+
 ## 透過確認と拡大レビューの設計
 
 `previewBackgroundStore` はZustandで表示背景と任意色を起動中だけ共有し、永続化やGenerationRequestへの追加は行わない。`PreviewBackgroundControls` と `PreviewImage` を生成一覧・詳細・StampSetEditorの3種の変換後プレビューに使う。画像の背後のdivにCSS背景色と市松模様を置き、imgのsrcや画素を変更しない。

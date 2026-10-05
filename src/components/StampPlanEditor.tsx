@@ -31,6 +31,10 @@ const StampPlanEditor: React.FC<Props> = ({ request, onBack, onGenerate, onItems
         const next = items.map((current) => current.id === item.id ? { ...current, ...settings } : current);
         setItems(next); onItemsChange?.(next);
       }} />
+      <label className="stamp-plan-editor__instructions">追加の指示（任意・500文字以内）<textarea rows={3} maxLength={500} value={item.additionalInstructions ?? ""} onChange={(event) => {
+        const next = items.map((current) => current.id === item.id ? { ...current, additionalInstructions: event.target.value } : current);
+        setItems(next); onItemsChange?.(next);
+      }} /></label>
     </fieldset>)}
     {attempted && errors.length > 0 && <div role="alert">{errors.map((error) => <p key={error}>{error}</p>)}</div>}
     <button type="button" onClick={onBack}>共通設定に戻る</button>

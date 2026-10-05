@@ -36,6 +36,7 @@ export interface PromptInputProps {
   /** プロンプト履歴（新しい順・最大 20 件） */
   history: PromptHistory[];
   initialRequest?: GenerationRequest | null;
+  onDraftChange?: (request: GenerationRequest) => void;
 }
 
 /**
@@ -56,12 +57,20 @@ const PromptInput: React.FC<PromptInputProps> = ({
   onSubmit,
   history,
   initialRequest,
+  onDraftChange,
 }) => {
-  const [prompt, setPrompt] = useState<string>(initialRequest?.prompt ?? "");
-  const [count, setCount] = useState<StampCount>(initialRequest?.count ?? 8);
-  const [style, setStyle] = useState<GenerationStyle | "">(initialRequest?.style ?? "");
-  const [mode, setMode] = useState<GenerationMode>(initialRequest?.mode ?? "batch");
-  const [theme, setTheme] = useState<StampTheme>(initialRequest?.theme ?? "daily");
+  const [draft, setDraft] = useState<GenerationRequest>(() => initialRequest ?? {
+    prompt: "", count: 8, mode: "batch", theme: "daily", items: createStampPlan("daily", 8),
+  });
+  const { prompt, count, mode } = draft;
+  const theme = draft.theme ?? "daily";
+  const style = draft.style ?? "";
+  const updateDraft = (change: Partial<GenerationRequest>): void => {
+    const next = { ...draft, ...change };
+    if (next.count !== count || next.theme !== draft.theme) next.items = createStampPlan(next.theme ?? "daily", next.count);
+    setDraft(next);
+    onDraftChange?.(next);
+  };
   /** 送信を試みたか（空エラーは送信時に表示する - 要件 1.3） */
   const [submitAttempted, setSubmitAttempted] = useState<boolean>(false);
 
@@ -88,16 +97,7 @@ const PromptInput: React.FC<PromptInputProps> = ({
       return;
     }
 
-    const request: GenerationRequest = {
-      prompt,
-      count,
-      mode,
-      theme,
-      items: initialRequest?.count === count && initialRequest.theme === theme && initialRequest.items
-        ? initialRequest.items
-        : createStampPlan(theme, count),
-      ...(style !== "" ? { style } : {}),
-    };
+    const request: GenerationRequest = { ...draft, theme, items: draft.items ?? createStampPlan(theme, count) };
     onSubmit(request);
   };
 
@@ -109,7 +109,7 @@ const PromptInput: React.FC<PromptInputProps> = ({
           id="prompt-text"
           name="prompt"
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={(e) => updateDraft({ prompt: e.target.value })}
           rows={5}
           placeholder="例: 白い、丸く横長で少し眠そうなアザラシ。短い前足、小さな濃紺の目。シンプルなイラスト"
           aria-invalid={displayedError !== null}
@@ -133,11 +133,11 @@ const PromptInput: React.FC<PromptInputProps> = ({
         )}
       </div>
 
-      <p>ここでは外見と画風を指定します。言葉／意味、表情、ポーズ、小物は次の企画一覧で編集できます。文字は画像に描かず、意味を表情とポーズで伝えます。</p>
+      <p>ここでは外見と画風を指定します。言葉／意味、表情、ポーズ、小物、画像に描く文字は次の企画一覧で編集できます。</p>
       {initialRequest && <p>テーマや枚数を変更して内容を作り直すと、企画一覧で編集した内容は消えます。</p>}
       <div className="prompt-input__field">
         <label htmlFor="stamp-theme">テーマ</label>
-        <select id="stamp-theme" value={theme} onChange={(event) => setTheme(event.target.value as StampTheme)}>
+        <select id="stamp-theme" value={theme} onChange={(event) => updateDraft({ theme: event.target.value as StampTheme })}>
           <option value="daily">日常の挨拶</option>
           <option value="work">仕事で使う言葉</option>
         </select>
@@ -150,7 +150,7 @@ const PromptInput: React.FC<PromptInputProps> = ({
           id="stamp-count"
           name="count"
           value={count}
-          onChange={(e) => setCount(Number(e.target.value) as StampCount)}
+          onChange={(e) => updateDraft({ count: Number(e.target.value) as StampCount })}
         >
           {STAMP_COUNT_OPTIONS.map((opt) => (
             <option key={opt} value={opt}>
@@ -167,7 +167,7 @@ const PromptInput: React.FC<PromptInputProps> = ({
           id="generation-style"
           name="style"
           value={style}
-          onChange={(e) => setStyle(e.target.value as GenerationStyle | "")}
+          onChange={(e) => updateDraft({ style: e.target.value === "" ? undefined : e.target.value as GenerationStyle })}
         >
           <option value="">指定しない</option>
           {STYLE_OPTIONS.map((opt) => (
@@ -188,7 +188,7 @@ const PromptInput: React.FC<PromptInputProps> = ({
               name="mode"
               value={opt.value}
               checked={mode === opt.value}
-              onChange={() => setMode(opt.value)}
+              onChange={() => updateDraft({ mode: opt.value })}
             />
             {opt.label}
           </label>
@@ -205,7 +205,7 @@ const PromptInput: React.FC<PromptInputProps> = ({
             value=""
             onChange={(e) => {
               if (e.target.value !== "") {
-                setPrompt(e.target.value);
+                updateDraft({ prompt: e.target.value });
               }
             }}
           >

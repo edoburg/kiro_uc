@@ -13,6 +13,7 @@ import type {
 
 import PromptInput from "./components/PromptInput";
 import StampPlanEditor from "./components/StampPlanEditor";
+import GenerationPresetPanel from "./components/GenerationPresetPanel";
 import ImagePreviewGrid from "./components/ImagePreviewGrid";
 import StampSetEditor from "./components/StampSetEditor";
 import UploadPanel from "./components/UploadPanel";
@@ -43,7 +44,7 @@ import {
   classifyGenerationOutcome,
   toGenerationStartRequest,
 } from "./utils/generationFlow";
-import { normalizeStampPlanItem, resolveDisplayText, validateStampPlan } from "./utils/stampPlan";
+import { createStampPlan, normalizeStampPlanItem, resolveDisplayText, validateStampPlan } from "./utils/stampPlan";
 
 /**
  * window.api が存在するときのみ callback を実行する小さなガード。
@@ -96,6 +97,14 @@ export const AppInner: React.FC = () => {
   const [exportMessage, setExportMessage] = React.useState<string | null>(null);
   const [isGenerationActive, setIsGenerationActive] = React.useState(false);
   const [approvalGranted, setApprovalGranted] = React.useState(false);
+  const [presetBusy, setPresetBusy] = React.useState(false);
+  const presetBusyRef = React.useRef(false);
+  const emptyRequest = React.useMemo<GenerationRequest>(() => ({ prompt: "", count: 8, mode: "batch", theme: "daily", items: createStampPlan("daily", 8) }), []);
+  const workRequest = state.draftRequest ?? state.currentRequest ?? emptyRequest;
+  const workOptions = React.useMemo(() => state.generationOptions ?? {
+    model: state.config?.openaiModel ?? "gpt-image-2.5-flare", quality: state.config?.openaiQuality ?? "auto",
+  }, [state.generationOptions, state.config?.openaiModel, state.config?.openaiQuality]);
+  const generationConfig = React.useMemo(() => ({ openaiModel: workOptions.model, openaiQuality: workOptions.quality }), [workOptions]);
   const generationUnsubscribeRef = React.useRef<(() => void) | null>(null);
   const activeGenerationStreamIdRef = React.useRef<string | null>(null);
   const pendingGenerationEventsRef = React.useRef<GenerationStreamPayload[]>([]);
@@ -343,7 +352,7 @@ export const AppInner: React.FC = () => {
 
   const handleGenerate = useCallback(
     (request: GenerationRequest): void => {
-      if (generationInFlightRef.current) {
+      if (generationInFlightRef.current || presetBusyRef.current) {
         return;
       }
       const errors = validateStampPlan(request);
@@ -358,16 +367,16 @@ export const AppInner: React.FC = () => {
       dispatch({ type: "START_GENERATION", request });
       const count = request.mode === "preview_approval" ? 1 : request.count;
       void startGeneration(
-        toGenerationStartRequest(request, state.config, { count, startIndex: 0 }),
+        toGenerationStartRequest(request, generationConfig, { count, startIndex: 0 }),
         count,
         0,
       );
     },
-    [addHistory, dispatch, setError, startGeneration, state.config],
+    [addHistory, dispatch, setError, startGeneration, generationConfig],
   );
 
   const handleCreatePlan = useCallback((request: GenerationRequest): void => {
-    if (generationInFlightRef.current) return;
+    if (generationInFlightRef.current || presetBusyRef.current) return;
     dispatch({ type: "SET_DRAFT_REQUEST", request });
   }, [dispatch]);
 
@@ -386,7 +395,7 @@ export const AppInner: React.FC = () => {
 
   const startSingleRegeneration = useCallback(
     (request: GenerationRequest, index: number): void => {
-      if (generationInFlightRef.current || !request.items?.[index]) return;
+      if (generationInFlightRef.current || presetBusyRef.current || !request.items?.[index]) return;
       const baselineSucceeded = state.generatedImages.filter(
         (image) => image.index !== index && image.status === "done",
       ).length;
@@ -408,7 +417,7 @@ export const AppInner: React.FC = () => {
       }
       dispatch({ type: "CLEAR_ERROR" });
       void startGeneration(
-        toGenerationStartRequest(request, state.config, {
+        toGenerationStartRequest(request, generationConfig, {
           count: 1,
           startIndex: index,
           mode: "batch",
@@ -421,7 +430,7 @@ export const AppInner: React.FC = () => {
     [
       dispatch,
       startGeneration,
-      state.config,
+      generationConfig,
       state.generatedImages,
     ],
   );
@@ -432,7 +441,7 @@ export const AppInner: React.FC = () => {
 
   const handleRegenerateWithEdits = useCallback((index: number, edited: StampPlanItem): void => {
     const current = state.currentRequest;
-    if (!current?.items?.[index] || generationInFlightRef.current) return;
+    if (!current?.items?.[index] || generationInFlightRef.current || presetBusyRef.current) return;
     const original = current.items[index];
     const items = current.items.map((item, position) => position === index
       ? { ...item, meaning: edited.meaning, expression: edited.expression, pose: edited.pose,
@@ -455,6 +464,7 @@ export const AppInner: React.FC = () => {
       if (
         !state.currentRequest ||
         generationInFlightRef.current ||
+        presetBusyRef.current ||
         remainingCount <= 0
       ) {
         return;
@@ -464,7 +474,7 @@ export const AppInner: React.FC = () => {
       ).length;
       setApprovalGranted(true);
       void startGeneration(
-        toGenerationStartRequest(state.currentRequest, state.config, {
+        toGenerationStartRequest(state.currentRequest, generationConfig, {
           count: remainingCount,
           startIndex: 1,
           mode: "batch",
@@ -473,7 +483,7 @@ export const AppInner: React.FC = () => {
         baselineSucceeded,
       );
     },
-    [startGeneration, state.config, state.currentRequest, state.generatedImages],
+    [startGeneration, generationConfig, state.currentRequest, state.generatedImages],
   );
 
   const handleRedo = useCallback((): void => {
@@ -880,6 +890,7 @@ export const AppInner: React.FC = () => {
         <nav className="app__nav" aria-label="画面切り替え">
           <button
             type="button"
+            disabled={isGenerationActive || presetBusy || state.step === "processing"}
             onClick={() => dispatch({ type: "GO_TO_STEP", step: "prompt" })}
             aria-current={state.step === "prompt" ? "page" : undefined}
           >
@@ -958,20 +969,35 @@ export const AppInner: React.FC = () => {
       )}
 
       {/* メイン生成フロー（補助パネルが開いていないときに表示） */}
+      <div className="app__main" hidden={state.panel !== null || state.needsSetup}>
+        <GenerationPresetPanel request={workRequest} options={workOptions}
+          locked={isGenerationActive || state.step === "generating" || state.step === "processing" || isExporting || (state.step === "upload" && state.uploadProgress !== null)}
+          hasResults={state.generatedImages.length > 0 || state.stampSet !== null}
+          onOptionsChange={(options) => { if (!generationInFlightRef.current && !presetBusyRef.current) dispatch({ type: "SET_GENERATION_OPTIONS", options }); }}
+          onBusyChange={(busy) => { presetBusyRef.current = busy; setPresetBusy(busy); }}
+          onLoad={(preset) => {
+            if (generationInFlightRef.current || state.step === "processing" || isExporting) return false;
+            cleanupGenerationStream(); cleanupUploadStream(); setApprovalGranted(false); setExportMessage(null);
+            dispatch({ type: "LOAD_GENERATION_PRESET", preset }); return true;
+          }} />
+      </div>
       {state.panel === null && (
         <main className="app__main">
+          <fieldset className="work-content" disabled={presetBusy}>
           {/* 1. 共通設定 */}
           {state.step === "prompt" && (
             <PromptInput
+              key={state.workRevision}
               onSubmit={handleCreatePlan}
               history={history}
-              initialRequest={state.draftRequest}
+              initialRequest={workRequest}
+              onDraftChange={(request) => dispatch({ type: "UPDATE_DRAFT_REQUEST", request })}
             />
           )}
 
           {state.step === "plan" && state.draftRequest && (
             <StampPlanEditor
-              key={`${state.draftRequest.theme}-${state.draftRequest.count}-${state.draftRequest.prompt}`}
+              key={`${state.workRevision}-${state.draftRequest.theme}-${state.draftRequest.count}-${state.draftRequest.prompt}`}
               request={state.draftRequest}
               onItemsChange={(items) => dispatch({ type: "SET_DRAFT_REQUEST", request: { ...state.draftRequest!, items } })}
               onBack={() => dispatch({ type: "GO_TO_STEP", step: "prompt" })}
@@ -1052,6 +1078,7 @@ export const AppInner: React.FC = () => {
               onUpload={handleStartUpload}
             />
           )}
+          </fieldset>
         </main>
       )}
     </div>

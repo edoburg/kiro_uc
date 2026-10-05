@@ -147,6 +147,12 @@ export type UploadStreamPayload =
   | { streamId: string; event: "message"; data: unknown };
 
 export interface RendererApi {
+  generationPresets: {
+    list: () => Promise<import("./index").GenerationPresetList>;
+    load: (id: string) => Promise<import("./index").GenerationPreset>;
+    save: (input: import("./index").GenerationPresetSave) => Promise<import("./index").GenerationPreset>;
+    delete: (id: string) => Promise<void>;
+  };
   config: {
     get: () => Promise<Config>;
     save: (config: Config) => Promise<StatusResponse>;

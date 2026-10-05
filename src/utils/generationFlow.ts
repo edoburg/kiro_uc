@@ -16,12 +16,15 @@ export interface GenerationSlice {
 /** UI上の要求と設定から、1回のバックエンド生成要求を組み立てる。 */
 export function toGenerationStartRequest(
   request: GenerationRequest,
-  config: Config | null,
+  config: Pick<Config, "openaiModel" | "openaiQuality"> | null,
   slice: GenerationSlice,
 ): GenerationStartRequest {
   return {
     ...request,
-    ...(request.items ? { items: request.items.map(normalizeStampPlanItem) } : {}),
+    ...(request.items ? { items: request.items.map((item) => {
+      const { sourceTemplateId: _sourceTemplateId, ...condition } = normalizeStampPlanItem(item);
+      return condition;
+    }) } : {}),
     count: slice.count,
     startIndex: slice.startIndex,
     mode: slice.mode ?? request.mode,

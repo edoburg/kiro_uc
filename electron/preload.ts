@@ -58,6 +58,12 @@ function subscribe<TPayload>(
 }
 
 const api = {
+  generationPresets: {
+    list: () => ipcRenderer.invoke("generation-presets:list"),
+    load: (id: string) => ipcRenderer.invoke("generation-presets:load", id),
+    save: (input: import("../src/types").GenerationPresetSave) => ipcRenderer.invoke("generation-presets:save", input),
+    delete: (id: string) => ipcRenderer.invoke("generation-presets:delete", id),
+  },
   // --- Config ---
   config: {
     /** 現在の設定を取得する */

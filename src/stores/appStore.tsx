@@ -8,6 +8,8 @@ import type {
   Config,
   GeneratedImage,
   GenerationRequest,
+  GenerationOptions,
+  GenerationPreset,
   StampImage,
   StampSet,
   UploadResult,
@@ -58,6 +60,8 @@ export interface AppState {
   /** 現在の生成リクエスト */
   currentRequest: GenerationRequest | null;
   draftRequest: GenerationRequest | null;
+  generationOptions: GenerationOptions | null;
+  workRevision: number;
   /** 生成済み画像一覧 */
   generatedImages: GeneratedImage[];
   /** LINE 規格変換済みのスタンプセット */
@@ -92,6 +96,9 @@ export type AppAction =
   | { type: "START_GENERATION"; request: GenerationRequest }
   | { type: "UPDATE_CURRENT_REQUEST"; request: GenerationRequest }
   | { type: "SET_DRAFT_REQUEST"; request: GenerationRequest }
+  | { type: "UPDATE_DRAFT_REQUEST"; request: GenerationRequest }
+  | { type: "SET_GENERATION_OPTIONS"; options: GenerationOptions }
+  | { type: "LOAD_GENERATION_PRESET"; preset: GenerationPreset }
   | { type: "SET_GENERATED_IMAGES"; images: GeneratedImage[] }
   | { type: "UPSERT_GENERATED_IMAGE"; image: GeneratedImage }
   | { type: "DELETE_GENERATED_IMAGE"; index: number }
@@ -124,6 +131,8 @@ export const initialAppState: AppState = {
   lineCredentialsConfigured: false,
   currentRequest: null,
   draftRequest: null,
+  generationOptions: null,
+  workRevision: 0,
   generatedImages: [],
   stampSet: null,
   uploadProgress: null,
@@ -179,6 +188,16 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case "SET_DRAFT_REQUEST":
       return { ...state, draftRequest: action.request, step: "plan", error: null };
+
+    case "UPDATE_DRAFT_REQUEST":
+      return { ...state, draftRequest: action.request };
+    case "SET_GENERATION_OPTIONS":
+      return { ...state, generationOptions: action.options };
+    case "LOAD_GENERATION_PRESET":
+      return { ...state, draftRequest: action.preset.request, currentRequest: null,
+        generationOptions: action.preset.options, workRevision: state.workRevision + 1,
+        generatedImages: [], stampSet: null, uploadProgress: null, uploadResult: null,
+        generationFailed: false, error: null, step: "prompt", panel: null };
 
     case "SET_GENERATED_IMAGES":
       return { ...state, generatedImages: action.images };

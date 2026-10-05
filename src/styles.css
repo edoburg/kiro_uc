@@ -541,10 +541,22 @@ h2 {
   gap: 0.25rem;
 }
 
-.stamp-plan-editor__item input {
+.stamp-plan-editor__item input,
+.stamp-plan-editor__item textarea {
   width: 100%;
   box-sizing: border-box;
 }
+
+.work-content { border: 0; padding: 0; margin: 0; min-width: 0; }
+.stamp-plan-editor__instructions { grid-column: 1 / -1; min-width: 0; }
+.stamp-plan-editor__instructions textarea { resize: vertical; }
+.generation-preset-panel { border: 1px solid var(--color-border); border-radius: var(--radius); padding: 16px; background: var(--color-surface); }
+.generation-preset-heading { margin: 0; }
+.generation-preset-toggle { width: 100%; text-align: left; font: inherit; color: inherit; background: transparent; border: 0; padding: 0; cursor: pointer; }
+.generation-preset-panel fieldset { min-width: 0; }
+.generation-preset-panel label { margin-top: 8px; }
+.generation-preset-panel li { margin: 12px 0; overflow-wrap: anywhere; }
+.generation-preset-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 
 .preview-surface { width: 100%; height: 100%; }
 .preview-surface--checker {

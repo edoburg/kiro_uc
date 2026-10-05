@@ -9,6 +9,7 @@ import {
 } from "electron";
 import { ChildProcess } from "child_process";
 import { getBackendLaunch, launchBackend } from "./backend";
+import { GenerationPresetRepository } from "./generationPresets";
 import * as path from "path";
 import * as http from "http";
 import type {
@@ -537,6 +538,11 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  const presets = new GenerationPresetRepository(path.join(app.getPath("userData"), "generation-presets"));
+  ipcMain.handle("generation-presets:list", () => presets.list());
+  ipcMain.handle("generation-presets:load", (_event, id: string) => presets.load(id));
+  ipcMain.handle("generation-presets:save", (_event, input: import("../src/types").GenerationPresetSave) => presets.save(input));
+  ipcMain.handle("generation-presets:delete", (_event, id: string) => presets.delete(id));
   try {
     await startPythonBackend();
     await waitForBackend();

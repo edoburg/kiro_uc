@@ -25,6 +25,8 @@ export interface StampPlanItem {
   prop: string;
   /** この1枚だけに適用する補足指示（最大500文字）。 */
   additionalInstructions?: string;
+  /** 将来のテンプレート選択用。保存するが画像生成APIには送らない。 */
+  sourceTemplateId?: string;
   /** 未指定は旧データ互換で文字なし。 */
   textEnabled?: boolean;
   /** null/未指定は意味を使用。空文字は明示的な空欄。 */
@@ -43,6 +45,39 @@ export type OpenAIImageQuality =
 export type OpenAIImageModel =
   | "gpt-image-2.5-flare"
   | "gpt-image-2.5-sunburst";
+
+export interface GenerationOptions {
+  model: OpenAIImageModel;
+  quality: OpenAIImageQuality;
+}
+export interface GenerationPresetSnapshot {
+  request: GenerationRequest;
+  options: GenerationOptions;
+}
+export interface GenerationPreset extends GenerationPresetSnapshot {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface GenerationPresetSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  count: StampCount;
+  theme: StampTheme;
+}
+export interface GenerationPresetList {
+  presets: GenerationPresetSummary[];
+  issues: { id?: string; message: string }[];
+}
+export interface GenerationPresetSave {
+  id?: string;
+  name: string;
+  snapshot: GenerationPresetSnapshot;
+}
 
 /** AI 画像生成リクエスト */
 export interface GenerationRequest {
