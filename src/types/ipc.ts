@@ -29,6 +29,8 @@ export interface StreamHandle {
 }
 
 export interface ExportImageRequest {
+  /** StampImage.id。メイン／タブ画像の選択IDの参照先。 */
+  id: string;
   stampPath: string;
   mainImagePath: string;
   thumbnailPath: string;
@@ -39,6 +41,10 @@ export interface ExportCreateRequest {
     title: string;
     description: string;
     images: ExportImageRequest[];
+    /** main.png の元にする画像ID（images 内の id）。 */
+    mainImageId: string;
+    /** tab.png の元にする画像ID（images 内の id）。 */
+    tabImageId: string;
   };
   defaultDirectory: string;
 }
@@ -95,6 +101,8 @@ export interface UploadProgressPayload {
 }
 
 export interface UploadImageRequest {
+  /** StampImage.id。メイン／タブ画像の選択IDの参照先。 */
+  id: string;
   stampPath: string;
   mainImagePath: string;
   thumbnailPath: string;
@@ -107,8 +115,14 @@ export interface UploadStartRequest {
     creatorName: string;
     copyright: string;
     images: UploadImageRequest[];
-    mainImagePath: string | null;
-    thumbnailPath: string | null;
+    /** メイン画像の元にする画像ID。バックエンドが images 内で解決・検証する。 */
+    mainImageId: string;
+    /** トークルームタブ画像の元にする画像ID。 */
+    tabImageId: string;
+    /** 選択画像の mainImagePath（バックエンドで選択IDの解決結果と照合する）。 */
+    mainImagePath: string;
+    /** 選択画像の thumbnailPath（バックエンドで選択IDの解決結果と照合する）。 */
+    thumbnailPath: string;
   };
   emailCredentialKey: "line_email";
   passwordCredentialKey: "line_password";

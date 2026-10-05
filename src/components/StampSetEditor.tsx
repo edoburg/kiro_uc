@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import PreviewImage from "./PreviewImage";
 import PreviewBackgroundControls from "./PreviewBackgroundControls";
-import type { StampSet } from "../types/index";
+import type { RepresentativeRole, StampSet } from "../types/index";
 import {
   validateCopyright,
   validateCreatorName,
@@ -9,7 +9,30 @@ import {
   validateFileType,
   validateTitle,
 } from "../utils/validation";
-import { validateStampSet } from "../utils/stampSet";
+import {
+  REPRESENTATIVE_ROLE_LABELS,
+  describeRepresentativeIssue,
+  isSelectableRepresentative,
+  resolveRepresentativeImages,
+  validateStampSet,
+} from "../utils/stampSet";
+
+/** 選択中のメイン／タブ画像の表示設定。 */
+const REPRESENTATIVE_SUMMARY: Record<
+  RepresentativeRole,
+  { heading: string; size: string; className: string }
+> = {
+  main: {
+    heading: "メイン画像",
+    size: "240×240px",
+    className: "stamp-set-editor__preview--main",
+  },
+  tab: {
+    heading: "トークルームタブ画像",
+    size: "96×74px",
+    className: "stamp-set-editor__preview--thumb",
+  },
+};
 
 /** タイトル最大文字数（要件 4.2 / LINE 規格） */
 const MAX_TITLE_LENGTH = 40;
@@ -42,10 +65,14 @@ export interface StampSetEditorProps {
   onCreatorNameChange: (creatorName: string) => void;
   /** コピーライト変更時に呼ばれる */
   onCopyrightChange: (copyright: string) => void;
-  /** 個別スタンプ画像の差し替え（PNG のみ、要件 4.4, 4.6） */
-  onReplaceImage: (index: number, file: File) => void;
+  /** 個別スタンプ画像の差し替え（PNG のみ、要件 4.4, 4.6）。対象は画像IDで指定する。 */
+  onReplaceImage: (imageId: string, file: File) => void;
   /** 変換失敗した画像を同じ変換元から再処理する */
-  onRetryImage: (index: number) => void;
+  onRetryImage: (imageId: string) => void;
+  /** メイン画像／タブ画像の元にする画像を選ぶ（画像生成・再変換は行わない） */
+  onSelectRepresentative: (role: RepresentativeRole, imageId: string) => void;
+  /** スタンプ画像をセットから削除する（確認後に呼ばれる） */
+  onDeleteImage: (imageId: string) => void;
   /** エクスポート開始（タイトル検証通過時のみ、要件 4.7, 4.8） */
   onExport: () => void;
   /** ZIP生成中フラグ */
@@ -68,6 +95,8 @@ export interface StampSetEditorProps {
  * - タイトル入力: 1〜40 文字、リアルタイム文字数・エラー表示（要件 4.2）
  * - 説明入力: 0〜160 文字、リアルタイム文字数・エラー表示（要件 4.3）
  * - 個別画像差し替え: PNG のみ選択可、PNG 以外はエラー表示（要件 4.4, 4.5）
+ * - メイン／タブ画像の元画像選択: 画像IDで保持し、選択中の派生画像を上部に表示
+ * - 画像削除: 選択中の画像なら選択解除を確認してから削除
  * - エクスポート: タイトル検証通過時のみ ZIP 化を開始（要件 4.7, 4.8）
  * - アップロード: LINE 規格未通過時はボタン無効化（要件 5.6）
  *
@@ -81,17 +110,23 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
   onCopyrightChange,
   onReplaceImage,
   onRetryImage,
+  onSelectRepresentative,
+  onDeleteImage,
   onExport,
   isExporting,
   exportMessage,
   onUpload,
   lineUploadEnabled = true,
 }) => {
-  // 差し替え対象の隠しファイル入力を画像ごとに参照する
-  const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-  // 画像ごとの差し替えエラーメッセージ（要件 4.5）
-  const [replaceErrors, setReplaceErrors] = useState<Record<number, string>>(
+  // 差し替え対象の隠しファイル入力を画像IDごとに参照する
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  // 画像IDごとの差し替えエラーメッセージ（要件 4.5）
+  const [replaceErrors, setReplaceErrors] = useState<Record<string, string>>(
     {},
+  );
+  const representatives = useMemo(
+    () => resolveRepresentativeImages(stampSet),
+    [stampSet],
   );
 
   // リアルタイムのタイトル／説明バリデーション（要件 4.2, 4.3）
@@ -136,12 +171,30 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
   ]);
   const isExportDisabled = !setValidation.canExport;
 
-  const handleReplaceClick = (index: number): void => {
-    fileInputRefs.current[index]?.click();
+  const handleReplaceClick = (imageId: string): void => {
+    fileInputRefs.current[imageId]?.click();
+  };
+
+  const handleDelete = (imageId: string, position: number): void => {
+    const selectedRoles = (["main", "tab"] as const).filter((role) =>
+      role === "main"
+        ? stampSet.mainImageId === imageId
+        : stampSet.tabImageId === imageId,
+    );
+    const roleText = selectedRoles
+      .map((role) => REPRESENTATIVE_ROLE_LABELS[role])
+      .join("と");
+    const message =
+      selectedRoles.length > 0
+        ? `スタンプ ${position + 1} は${roleText}に選択されています。削除すると${roleText}が未選択になり、選び直すまでZIP保存とアップロードはできません。削除しますか？`
+        : `スタンプ ${position + 1} をセットから削除しますか？`;
+    if (window.confirm(message)) {
+      onDeleteImage(imageId);
+    }
   };
 
   const handleFileSelected = (
-    index: number,
+    imageId: string,
     event: React.ChangeEvent<HTMLInputElement>,
   ): void => {
     const file = event.target.files?.[0];
@@ -158,18 +211,18 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
     if (!isPng) {
       setReplaceErrors((prev) => ({
         ...prev,
-        [index]: "PNG形式のファイルを選択してください",
+        [imageId]: "PNG形式のファイルを選択してください",
       }));
       return;
     }
 
-    // 検証通過: エラーを解除し差し替えを親へ通知（要件 4.6）
+    // 検証通過: エラーを解除し差し替えを親へ通知（要件 4.6）。枠のIDは維持される。
     setReplaceErrors((prev) => {
       const next = { ...prev };
-      delete next[index];
+      delete next[imageId];
       return next;
     });
-    onReplaceImage(index, file);
+    onReplaceImage(imageId, file);
   };
 
   const handleExport = (): void => {
@@ -315,14 +368,84 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
       )}
 
       <PreviewBackgroundControls />
+
+      {/* --- 現在のメイン／タブ画像（実際に出力する派生画像を表示） --- */}
+      <section
+        className="stamp-set-editor__representatives"
+        aria-label="メイン画像とトークルームタブ画像"
+      >
+        <h3>メイン画像・トークルームタブ画像</h3>
+        <p className="stamp-set-editor__hint">
+          一覧の「メイン画像に使う」「タブ画像に使う」で元にするスタンプを選べます（別々の画像でも同じ画像でも構いません）。
+          メイン画像は中央を正方形に切り抜くため、文字や顔が切れていないか下の実際の画像で確認してください。
+        </p>
+        <div className="stamp-set-editor__representative-list">
+          {(["main", "tab"] as const).map((role) => {
+            const resolution = representatives[role];
+            const summary = REPRESENTATIVE_SUMMARY[role];
+            const issue = describeRepresentativeIssue(role, resolution);
+            return (
+              <figure
+                key={role}
+                className="stamp-set-editor__representative"
+                data-role={role}
+              >
+                <figcaption>
+                  <strong>{summary.heading}</strong>（{summary.size}）
+                  {resolution.status === "ok" && (
+                    <span>：スタンプ {resolution.index + 1} から作成</span>
+                  )}
+                </figcaption>
+                {resolution.status === "ok" && resolution.previewUrl ? (
+                  <div className="stamp-set-editor__preview-frame stamp-set-editor__representative-frame">
+                    <PreviewImage
+                      className={`stamp-set-editor__preview ${summary.className}`}
+                      src={resolution.previewUrl}
+                      alt={`選択中の${summary.heading}（スタンプ ${resolution.index + 1}）`}
+                    />
+                  </div>
+                ) : resolution.status === "ok" ? (
+                  <p className="stamp-set-editor__error" role="alert">
+                    {summary.heading}のプレビューを取得できませんでした。画像を再変換してください。
+                  </p>
+                ) : (
+                  <p className="stamp-set-editor__error" role="alert">
+                    {issue}
+                  </p>
+                )}
+              </figure>
+            );
+          })}
+        </div>
+      </section>
+
       {/* --- スタンプ画像プレビュー一覧（要件 4.1） --- */}
       <ul className="stamp-set-editor__grid" aria-label="スタンプ画像一覧">
         {stampSet.images.map((image, index) => {
-          const replaceError = replaceErrors[index];
+          const replaceError = replaceErrors[image.id];
           const errorId = `stamp-replace-error-${index}`;
+          const isMain = stampSet.mainImageId === image.id;
+          const isTab = stampSet.tabImageId === image.id;
+          const mainPreview = image.mainImagePreviewUrl || image.mainImagePath;
+          const thumbPreview = image.thumbnailPreviewUrl || image.thumbnailPath;
           return (
-            <li key={index} className="stamp-set-editor__item">
+            <li
+              key={image.id}
+              className={`stamp-set-editor__item${
+                isMain || isTab ? " is-representative" : ""
+              }`}
+            >
               <h3 className="stamp-set-editor__item-title">スタンプ {index + 1}</h3>
+              {(isMain || isTab) && (
+                <p className="stamp-set-editor__selection-badges">
+                  {isMain && (
+                    <span className="stamp-set-editor__badge">メイン画像に選択中</span>
+                  )}
+                  {isTab && (
+                    <span className="stamp-set-editor__badge">タブ画像に選択中</span>
+                  )}
+                </p>
+              )}
               <div className="stamp-set-editor__previews">
                 <figure className="stamp-set-editor__preview-group">
                   <div className="stamp-set-editor__preview-frame">
@@ -336,24 +459,57 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
                 </figure>
                 <figure className="stamp-set-editor__preview-group">
                   <div className="stamp-set-editor__preview-frame">
-                    <PreviewImage
-                      className="stamp-set-editor__preview stamp-set-editor__preview--main"
-                      src={image.mainImagePreviewUrl || image.mainImagePath}
-                      alt={`メイン画像 ${index + 1}`}
-                    />
+                    {mainPreview ? (
+                      <PreviewImage
+                        className="stamp-set-editor__preview stamp-set-editor__preview--main"
+                        src={mainPreview}
+                        alt={`メイン画像 ${index + 1}`}
+                      />
+                    ) : (
+                      <span className="stamp-set-editor__placeholder">未作成</span>
+                    )}
                   </div>
                   <figcaption>メイン画像</figcaption>
                 </figure>
                 <figure className="stamp-set-editor__preview-group">
                   <div className="stamp-set-editor__preview-frame">
-                    <PreviewImage
-                      className="stamp-set-editor__preview stamp-set-editor__preview--thumb"
-                      src={image.thumbnailPreviewUrl || image.thumbnailPath}
-                      alt={`サムネイル画像 ${index + 1}`}
-                    />
+                    {thumbPreview ? (
+                      <PreviewImage
+                        className="stamp-set-editor__preview stamp-set-editor__preview--thumb"
+                        src={thumbPreview}
+                        alt={`サムネイル画像 ${index + 1}`}
+                      />
+                    ) : (
+                      <span className="stamp-set-editor__placeholder">未作成</span>
+                    )}
                   </div>
                   <figcaption>サムネイル画像</figcaption>
                 </figure>
+              </div>
+
+              {/* メイン／タブ画像の元として選択（選択だけでは生成・再変換しない） */}
+              <div
+                className="stamp-set-editor__representative-actions"
+                role="group"
+                aria-label={`スタンプ ${index + 1} の用途`}
+              >
+                {(["main", "tab"] as const).map((role) => {
+                  const selected = role === "main" ? isMain : isTab;
+                  const label = REPRESENTATIVE_ROLE_LABELS[role];
+                  return (
+                    <button
+                      key={role}
+                      type="button"
+                      className="stamp-set-editor__representative-button"
+                      aria-pressed={selected}
+                      aria-label={`スタンプ ${index + 1} を${label}に使う`}
+                      disabled={!isSelectableRepresentative(image, role)}
+                      onClick={() => onSelectRepresentative(role, image.id)}
+                    >
+                      {selected ? `✓ ${label}に選択中` : `${label}に使う`}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* LINE 規格バリデーション結果の表示（要件 3.4） */}
@@ -374,7 +530,7 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
               {/* 画像差し替え（PNG のみ、要件 4.4〜4.6） */}
               <input
                 ref={(el) => {
-                  fileInputRefs.current[index] = el;
+                  fileInputRefs.current[image.id] = el;
                 }}
                 type="file"
                 accept="image/png,.png"
@@ -382,12 +538,12 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
                 style={{ display: "none" }}
                 aria-hidden="true"
                 tabIndex={-1}
-                onChange={(e) => handleFileSelected(index, e)}
+                onChange={(e) => handleFileSelected(image.id, e)}
               />
               <button
                 type="button"
                 className="stamp-set-editor__replace-button"
-                onClick={() => handleReplaceClick(index)}
+                onClick={() => handleReplaceClick(image.id)}
                 disabled={image.processingStatus === "processing"}
                 aria-label={`スタンプ画像 ${index + 1} を差し替え`}
                 aria-describedby={replaceError ? errorId : undefined}
@@ -398,11 +554,20 @@ const StampSetEditor: React.FC<StampSetEditorProps> = ({
                 <button
                   type="button"
                   className="stamp-set-editor__retry-button"
-                  onClick={() => onRetryImage(index)}
+                  onClick={() => onRetryImage(image.id)}
                 >
                   変換を再試行
                 </button>
               )}
+              <button
+                type="button"
+                className="stamp-set-editor__delete-button"
+                onClick={() => handleDelete(image.id, index)}
+                disabled={image.processingStatus === "processing"}
+                aria-label={`スタンプ画像 ${index + 1} を削除`}
+              >
+                削除
+              </button>
               {replaceError && (
                 <p
                   id={errorId}

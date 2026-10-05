@@ -8,6 +8,7 @@ from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 import backend.main as main_module
 from backend.api_contracts import to_api_payload
@@ -38,6 +39,26 @@ def _isolated_client(monkeypatch, tmp_path: Path) -> TestClient:
     monkeypatch.setattr(main_module, "config_service", config_service)
     monkeypatch.setattr(main_module, "log_service", LogService(tmp_path / "logs"))
     return TestClient(main_module.app)
+
+
+def _write_derived_images(tmp_path: Path, count: int) -> list[dict[str, str]]:
+    """画像ごとに内容の異なる変換済みPNG（スタンプ・メイン・タブ）を作り、API形式で返す。"""
+    images: list[dict[str, str]] = []
+    for index in range(count):
+        paths = {}
+        for kind, size in (("stamp", (370, 320)), ("main", (240, 240)), ("thumb", (96, 74))):
+            path = tmp_path / f"{index}_{kind}.png"
+            Image.new("RGBA", size, (index * 30 % 256, 80, 160, 255)).save(path, format="PNG")
+            paths[kind] = str(path)
+        images.append(
+            {
+                "id": f"item-{index}",
+                "stampPath": paths["stamp"],
+                "mainImagePath": paths["main"],
+                "thumbnailPath": paths["thumb"],
+            }
+        )
+    return images
 
 
 def test_config_save_get_export_import_roundtrip_camel_case(
@@ -127,11 +148,10 @@ def test_process_response_is_camel_case(monkeypatch, tmp_path: Path) -> None:
 
 def test_export_request_and_response_are_camel_case(monkeypatch, tmp_path: Path) -> None:
     client = _isolated_client(monkeypatch, tmp_path)
-    stamp = tmp_path / "stamp.png"
-    main = tmp_path / "main.png"
-    thumb = tmp_path / "thumb.png"
-    for path in (stamp, main, thumb):
-        path.write_bytes(b"png")
+    # 旧要求（画像IDと選択フィールドなし）は先頭画像を使う互換経路
+    legacy_image = {
+        key: value for key, value in _write_derived_images(tmp_path, 1)[0].items() if key != "id"
+    }
 
     response = client.post(
         "/export",
@@ -139,13 +159,7 @@ def test_export_request_and_response_are_camel_case(monkeypatch, tmp_path: Path)
             "stampSet": {
                 "title": "APIテスト",
                 "description": "説明",
-                "images": [
-                    {
-                        "stampPath": str(stamp),
-                        "mainImagePath": str(main),
-                        "thumbnailPath": str(thumb),
-                    }
-                ],
+                "images": [legacy_image],
             },
             "outputDirectory": str(tmp_path / "exports"),
         },
@@ -163,6 +177,65 @@ def test_export_request_and_response_are_camel_case(monkeypatch, tmp_path: Path)
             "tab.png",
             "metadata.json",
         }
+        assert archive.read("main.png") == Path(legacy_image["mainImagePath"]).read_bytes()
+
+
+def test_export_endpoint_uses_selected_main_and_tab_ids(monkeypatch, tmp_path: Path) -> None:
+    client = _isolated_client(monkeypatch, tmp_path)
+    images = _write_derived_images(tmp_path, 8)
+
+    response = client.post(
+        "/export",
+        json={
+            "stampSet": {
+                "title": "選択テスト",
+                "description": "",
+                "images": images,
+                "mainImageId": "item-2",
+                "tabImageId": "item-4",
+            },
+            "outputDirectory": str(tmp_path / "exports"),
+        },
+    )
+
+    assert response.status_code == 200
+    with ZipFile(response.json()["zipPath"]) as archive:
+        assert archive.read("main.png") == Path(images[2]["mainImagePath"]).read_bytes()
+        assert archive.read("tab.png") == Path(images[4]["thumbnailPath"]).read_bytes()
+        assert archive.read("01.png") == Path(images[0]["stampPath"]).read_bytes()
+        assert archive.read("08.png") == Path(images[7]["stampPath"]).read_bytes()
+
+
+@pytest.mark.parametrize(
+    ("selection", "message"),
+    [
+        ({"mainImageId": "item-2"}, "トークルームタブ画像が選択されていません"),
+        ({"mainImageId": None, "tabImageId": "item-1"}, "メイン画像が選択されていません"),
+        ({"mainImageId": "missing", "tabImageId": "item-1"}, "見つかりません"),
+    ],
+)
+def test_export_endpoint_rejects_explicit_missing_or_unknown_selection(
+    monkeypatch, tmp_path: Path, selection: dict, message: str
+) -> None:
+    client = _isolated_client(monkeypatch, tmp_path)
+    output = tmp_path / "exports"
+
+    response = client.post(
+        "/export",
+        json={
+            "stampSet": {
+                "title": "不正",
+                "description": "",
+                "images": _write_derived_images(tmp_path, 3),
+                **selection,
+            },
+            "outputDirectory": str(output),
+        },
+    )
+
+    assert response.status_code == 400
+    assert message in response.json()["detail"]
+    assert not output.exists()
 
 
 def test_stream_and_upload_contracts_are_camel_case() -> None:
@@ -463,11 +536,7 @@ def test_upload_endpoint_reaches_service_and_streams_camel_case(
             )
 
     monkeypatch.setattr(main_module, "uploader_service", FakeUploader())
-    image = {
-        "stampPath": "C:/tmp/stamp.png",
-        "mainImagePath": "C:/tmp/main.png",
-        "thumbnailPath": "C:/tmp/thumb.png",
-    }
+    images = _write_derived_images(tmp_path, 8)
     response = client.post(
         "/upload",
         json={
@@ -476,9 +545,11 @@ def test_upload_endpoint_reaches_service_and_streams_camel_case(
                 "description": "description",
                 "creatorName": "Test Creator",
                 "copyright": "© Test Creator",
-                "images": [image] * 8,
-                "mainImagePath": "C:/tmp/main.png",
-                "thumbnailPath": "C:/tmp/thumb.png",
+                "images": images,
+                "mainImageId": "item-2",
+                "tabImageId": "item-4",
+                "mainImagePath": images[2]["mainImagePath"],
+                "thumbnailPath": images[4]["thumbnailPath"],
             },
             "emailCredentialKey": "line_email",
             "passwordCredentialKey": "line_password",
@@ -488,10 +559,66 @@ def test_upload_endpoint_reaches_service_and_streams_camel_case(
     assert response.status_code == 200
     assert captured["email"] == "placeholder@example.com"
     assert captured["stamp_set"].creator_name == "Test Creator"
+    # ZIPと同じ解決処理の結果（3枚目のメイン用・5枚目のタブ用）をアップローダーへ渡す
+    assert captured["stamp_set"].main_image_path == images[2]["mainImagePath"]
+    assert captured["stamp_set"].thumbnail_path == images[4]["thumbnailPath"]
+    assert [image.stamp_path for image in captured["stamp_set"].images] == [
+        image["stampPath"] for image in images
+    ]
     assert '"phase": "saving"' in response.text
     assert '"applicationId": "12345"' in response.text
     assert '"status": "draft"' in response.text
     assert "placeholder-password" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"mainImageId": "missing", "tabImageId": "item-4"}, "見つかりません"),
+        ({"tabImageId": "item-4"}, "メイン画像が選択されていません"),
+        (
+            {"mainImageId": "item-2", "tabImageId": "item-4", "mainImagePath": "IMAGE0_MAIN"},
+            "メイン画像のパスが選択された画像と一致しません",
+        ),
+    ],
+)
+def test_upload_endpoint_rejects_invalid_selection_before_starting(
+    monkeypatch, tmp_path: Path, overrides: dict, message: str
+) -> None:
+    """不正な選択はSSE開始前に400で拒否し、アップローダー（LINE送信）を呼ばない。"""
+    client = _isolated_client(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        main_module.config_service, "get_credential", lambda key: "placeholder"
+    )
+    calls: list[object] = []
+
+    class FakeUploader:
+        async def upload(self, stamp_set, line_credentials, on_progress):  # pragma: no cover
+            calls.append(stamp_set)
+            raise AssertionError("アップロードを開始してはいけない")
+
+    monkeypatch.setattr(main_module, "uploader_service", FakeUploader())
+    images = _write_derived_images(tmp_path, 8)
+    if overrides.get("mainImagePath") == "IMAGE0_MAIN":
+        overrides = {**overrides, "mainImagePath": images[0]["mainImagePath"]}
+
+    response = client.post(
+        "/upload",
+        json={
+            "stampSet": {
+                "title": "test",
+                "description": "",
+                "creatorName": "Test Creator",
+                "copyright": "© Test Creator",
+                "images": images,
+                **overrides,
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert message in response.json()["detail"]
+    assert calls == []
 
 
 def test_credential_status_never_returns_secret(monkeypatch, tmp_path: Path) -> None:

@@ -10,12 +10,18 @@ import type {
   GenerationRequest,
   GenerationOptions,
   GenerationPreset,
+  RepresentativeRole,
   StampImage,
   StampSet,
+  StampSetInput,
   UploadResult,
 } from "../types/index";
 import type { UploadProgress } from "../components/UploadPanel";
-import { recalculateStampSet } from "../utils/stampSet";
+import {
+  isSelectableRepresentative,
+  normalizeStampSet,
+  recalculateStampSet,
+} from "../utils/stampSet";
 
 /**
  * アプリのグローバル状態（React Context + useReducer）。
@@ -106,10 +112,12 @@ export type AppAction =
   | { type: "GENERATION_PARTIAL"; message: string }
   | { type: "GENERATION_FAILED"; message: string }
   | { type: "START_STAMP_SET_PROCESSING" }
-  | { type: "SET_STAMP_SET"; stampSet: StampSet }
-  | { type: "START_STAMP_IMAGE_PROCESSING"; index: number; sourcePath: string }
-  | { type: "UPDATE_STAMP_IMAGE"; index: number; image: StampImage }
-  | { type: "STAMP_IMAGE_PROCESS_FAILED"; index: number; message: string }
+  | { type: "SET_STAMP_SET"; stampSet: StampSetInput }
+  | { type: "START_STAMP_IMAGE_PROCESSING"; imageId: string; sourcePath: string }
+  | { type: "UPDATE_STAMP_IMAGE"; imageId: string; image: StampImage }
+  | { type: "STAMP_IMAGE_PROCESS_FAILED"; imageId: string; message: string }
+  | { type: "SELECT_REPRESENTATIVE_IMAGE"; role: RepresentativeRole; imageId: string }
+  | { type: "DELETE_STAMP_IMAGE"; imageId: string }
   | { type: "UPDATE_STAMP_SET_TITLE"; title: string }
   | { type: "UPDATE_STAMP_SET_DESCRIPTION"; description: string }
   | { type: "UPDATE_STAMP_SET_CREATOR_NAME"; creatorName: string }
@@ -247,11 +255,50 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, step: "processing", error: null };
 
     case "SET_STAMP_SET":
+      // 新規セット・旧データの初回正規化だけ、未指定の選択を先頭の正常画像で補う。
       return {
         ...state,
-        stampSet: recalculateStampSet(action.stampSet),
+        stampSet: normalizeStampSet(action.stampSet),
         step: "edit",
       };
+
+    case "SELECT_REPRESENTATIVE_IMAGE": {
+      // 選択できない画像・存在しないIDは状態を変えない（別画像へ補正しない）。
+      const target = state.stampSet?.images.find(
+        (image) => image.id === action.imageId,
+      );
+      if (!state.stampSet || !target || !isSelectableRepresentative(target, action.role)) {
+        return state;
+      }
+      return {
+        ...state,
+        stampSet: recalculateStampSet({
+          ...state.stampSet,
+          ...(action.role === "main"
+            ? { mainImageId: action.imageId }
+            : { tabImageId: action.imageId }),
+        }),
+      };
+    }
+
+    case "DELETE_STAMP_IMAGE": {
+      if (!state.stampSet?.images.some((image) => image.id === action.imageId)) {
+        return state;
+      }
+      // 選択中の画像を削除した場合は未選択に戻し、再選択まで出力を無効化する。
+      const { mainImageId, tabImageId } = state.stampSet;
+      return {
+        ...state,
+        stampSet: recalculateStampSet({
+          ...state.stampSet,
+          images: state.stampSet.images.filter(
+            (image) => image.id !== action.imageId,
+          ),
+          mainImageId: mainImageId === action.imageId ? null : mainImageId,
+          tabImageId: tabImageId === action.imageId ? null : tabImageId,
+        }),
+      };
+    }
 
     case "START_STAMP_IMAGE_PROCESSING":
       return state.stampSet
@@ -259,8 +306,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
             ...state,
             stampSet: recalculateStampSet({
               ...state.stampSet,
-              images: state.stampSet.images.map((image, index) =>
-                index === action.index
+              images: state.stampSet.images.map((image) =>
+                image.id === action.imageId
                   ? {
                       ...image,
                       sourcePath: action.sourcePath,
@@ -279,8 +326,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
             ...state,
             stampSet: recalculateStampSet({
               ...state.stampSet,
-              images: state.stampSet.images.map((image, index) =>
-                index === action.index ? action.image : image,
+              // 対象枠のIDを維持する。選択IDは変えないため、選択中なら新しい派生画像を参照する。
+              images: state.stampSet.images.map((image) =>
+                image.id === action.imageId
+                  ? { ...action.image, id: image.id }
+                  : image,
               ),
             }),
           }
@@ -292,8 +342,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
             ...state,
             stampSet: recalculateStampSet({
               ...state.stampSet,
-              images: state.stampSet.images.map((image, index) =>
-                index === action.index
+              images: state.stampSet.images.map((image) =>
+                image.id === action.imageId
                   ? {
                       ...image,
                       processingStatus: "error",

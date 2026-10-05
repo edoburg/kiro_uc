@@ -48,6 +48,7 @@ from backend.models import (
     ExportStampSet,
     GenerationRequest as GenerationRequestModel,
     LineCredentials,
+    RepresentativeImages,
     UploadProgress,
 )
 from backend.api_contracts import (
@@ -70,6 +71,10 @@ from backend.services.image_generator_service import (
 from backend.services.image_processor_service import ImageProcessorService
 from backend.services.log_service import LogLevel, LogService
 from backend.services.stamp_export_service import StampExportService
+from backend.services.stamp_selection import (
+    RepresentativeSelectionError,
+    resolve_representative_images,
+)
 from backend.services.uploader_service import UploaderService
 
 app = FastAPI(
@@ -531,9 +536,11 @@ async def export_stamp_set(request: ExportRequest) -> dict:
                 stamp_path=image.stamp_path,
                 main_image_path=image.main_image_path,
                 thumbnail_path=image.thumbnail_path,
+                id=image.id,
             )
             for image in request.stamp_set.images
         ],
+        selection=request.stamp_set.representative_selection(),
     )
     try:
         result = stamp_export_service.export(stamp_set, request.output_directory)
@@ -574,16 +581,50 @@ class UploadRequest(UploadRequestPayload):
 
 
 class _StampSetAdapter:
-    """UploaderService が getattr で参照する属性を持つ軽量ラッパー。"""
+    """UploaderService が getattr で参照する属性を持つ軽量ラッパー。
 
-    def __init__(self, model: UploadStampSetPayload) -> None:
+    main_image_path / thumbnail_path には、ZIPと同じ選択解決処理で検証した派生画像を設定する。
+    """
+
+    def __init__(
+        self, model: UploadStampSetPayload, representative: RepresentativeImages
+    ) -> None:
         self.title = model.title
         self.description = model.description
         self.creator_name = model.creator_name
         self.copyright = model.copyright
         self.images = list(model.images)
-        self.main_image_path = model.main_image_path
-        self.thumbnail_path = model.thumbnail_path
+        self.main_image_id = representative.main_image_id
+        self.tab_image_id = representative.tab_image_id
+        self.main_image_path = representative.main_image_path
+        self.thumbnail_path = representative.tab_image_path
+
+
+def _resolve_upload_representatives(model: UploadStampSetPayload) -> RepresentativeImages:
+    """アップロード要求の選択を解決し、照合用パスが解決結果と一致することを確認する。"""
+    try:
+        representative = resolve_representative_images(
+            model.images, model.representative_selection()
+        )
+    except (RepresentativeSelectionError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if (
+        model.main_image_path is not None
+        and model.main_image_path != representative.main_image_path
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="メイン画像のパスが選択された画像と一致しません。編集画面で選び直してください。",
+        )
+    if (
+        model.thumbnail_path is not None
+        and model.thumbnail_path != representative.tab_image_path
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="トークルームタブ画像のパスが選択された画像と一致しません。編集画面で選び直してください。",
+        )
+    return representative
 
 
 @app.post("/upload")
@@ -599,7 +640,13 @@ async def upload_stamp_set(request: UploadRequest) -> StreamingResponse:
     email = config_service.get_credential(request.email_credential_key)
     password = config_service.get_credential(request.password_credential_key)
 
-    stamp_set = _StampSetAdapter(request.stamp_set)
+    # 選択の不正はブラウザー起動・SSE開始前に400で拒否する。
+    try:
+        representative = _resolve_upload_representatives(request.stamp_set)
+    except HTTPException as exc:
+        log_service.log(LogLevel.WARN, "main.upload", str(exc.detail))
+        raise
+    stamp_set = _StampSetAdapter(request.stamp_set, representative)
 
     async def event_stream() -> AsyncIterator[str]:
         if not email or not password:

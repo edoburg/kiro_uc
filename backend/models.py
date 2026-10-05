@@ -76,6 +76,35 @@ class ExportImage:
     stamp_path: str
     main_image_path: str
     thumbnail_path: str
+    id: Optional[str] = None
+    """セット内で安定した画像ID（StampImage.id）。選択IDの参照先。旧要求では None。"""
+
+
+@dataclass
+class RepresentativeSelection:
+    """メイン画像・トークルームタブ画像の元にする画像IDの明示的な選択。
+
+    None の値は「未選択」を意味し、エラーとして扱う（先頭画像へ補正しない）。
+    選択そのものを持たない旧要求は ``ExportStampSet.selection = None`` で表す。
+    """
+
+    main_image_id: Optional[str]
+    tab_image_id: Optional[str]
+
+
+@dataclass
+class RepresentativeImages:
+    """選択を解決・検証した結果。ZIP とアップロードの両方で使う。"""
+
+    main_image_id: Optional[str]
+    main_index: int
+    main_image_path: str
+    """選択画像の mainImagePath（main.png・LINEメイン画像の実体）"""
+
+    tab_image_id: Optional[str]
+    tab_index: int
+    tab_image_path: str
+    """選択画像の thumbnailPath（tab.png・トークルームタブ画像の実体）"""
 
 
 @dataclass
@@ -85,6 +114,8 @@ class ExportStampSet:
     title: str
     description: str
     images: list[ExportImage]
+    selection: Optional[RepresentativeSelection] = None
+    """メイン／タブ画像の選択。None は選択フィールドのない旧要求で、先頭画像を使う。"""
 
 
 @dataclass

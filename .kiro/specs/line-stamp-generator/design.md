@@ -291,6 +291,7 @@ interface GeneratedImage {
 }
 
 interface StampImage {
+  id: string;             // セット内で安定した画像ID（生成項目IDを継承。差し替え・再変換でも不変）
   stampPath: string;      // 370×320px以内 透過PNG
   mainImagePath: string;  // 240×240px PNG
   thumbnailPath: string;  // 96×74px PNG
@@ -301,6 +302,8 @@ interface StampSet {
   title: string;          // 1-40文字
   description: string;    // 0-160文字
   images: StampImage[];
+  mainImageId: string | null;  // main.png／LINEメイン画像の元画像ID（null=未選択）
+  tabImageId: string | null;   // tab.png／トークルームタブ画像の元画像ID（null=未選択）
   isValidForUpload: boolean;
 }
 
@@ -552,6 +555,14 @@ class LineCredentials:
 
 ---
 
+### Property 20: ZIPとアップロード要求は同じ選択画像を参照する
+
+*任意の* 枚数（1〜40）と *任意の* メイン／タブの選択位置に対して、`toExportCreateRequest` と `toUploadStartRequest` は同じ選択IDを送り、ZIP要求内でIDから解決したメイン用・タブ用パスはアップロード要求の `mainImagePath`／`thumbnailPath` と一致し、スタンプ画像の順序は変わらない。
+
+**Validates: 追加要件「メイン画像・トークルームタブ画像の元画像選択」2, 4**
+
+---
+
 ## Error Handling
 
 ### エラー分類と対応方針
@@ -703,3 +714,19 @@ FastAPIのstrictな `ApiModel` でcamelCaseを受け、`text_enabled: bool = Fal
 `toGenerationStartRequest` は全項目をコピー・正規化する。Appの実行情報は送信した要求を保持し、成功イベントの絶対indexから生成時の有無と解決済み表示文字を `GeneratedImage.textSettings` に記録する。再生成失敗では元画像とそのtextSettingsを保持し、成功で対象だけ差し替える。設定を持たない旧画像は文字なしと表示する。
 
 スタンプとサムネイルは画像全体を縮小するためクロップで文字を切らない。メイン画像は既存の正方形中央クロップを使うため、端の文字が切れる可能性があり目視確認が必要。今回、画像処理の変更は行わない。
+
+## メイン画像・トークルームタブ画像の元画像選択の設計
+
+`StampImage.id` はセット内で一意の安定IDで、`buildStampSetFromGeneratedImages` が `GeneratedImage.itemId`（なければ `stamp-<index>`）から付ける。`StampSet.mainImageId`／`tabImageId` はこのIDで選択を保持し、配列位置は使わない。`normalizeStampSet` は `SET_STAMP_SET` の新規作成と旧データの初回正規化だけで使い、IDの欠落・重複を補い、選択フィールドが `undefined` のときだけ先頭の選択可能画像を選ぶ。`null` やセット外のIDはそのまま保持し、検証で知らせる。
+
+選択可能な画像は、変換完了で3種類の出力パスがあり、対象の派生パスがPNGのものに限る。`resolveRepresentativeImage` は `ok`／`unselected`／`missing`／`unavailable`（変換中・失敗・出力なし）を返し、`validateStampSet`、`StampSetEditor` の表示、`requireRepresentativeImages` が共通に使う。どちらかが `ok` でなければ ZIP 保存とアップロードを無効にし、理由を日本語で表示する。
+
+`appStore` の画像単位アクションは画像IDで対象を特定する。`SELECT_REPRESENTATIVE_IMAGE` は選択可能な画像だけ受け付け、それ以外は状態を変えない。`UPDATE_STAMP_IMAGE` は結果を対象枠のIDで保存するため、差し替え・再変換後は選択IDのまま新しい派生パスとプレビューを参照する。変換中・変換失敗の間は選択を保持したまま出力を無効にする。`DELETE_STAMP_IMAGE` は該当する選択だけ `null` にし、他方の選択や別画像への切り替えは行わない。削除前に `window.confirm` で選択解除と再選択の必要を知らせる。
+
+`StampSetEditor` は上部に選択中の `mainImagePreviewUrl`（240×240）と `thumbnailPreviewUrl`（96×74）を表示する。これらは画像処理APIが返した派生画像の data URL で、元画像へフォールバックしない（`toStampImage`／`toFailedStampImage` もメイン・タブの元画像フォールバックを持たない）。メイン画像は中央の正方形クロップなので、文字・顔の切れをこの表示で確認するよう案内する。各カードの「メイン画像に使う」「タブ画像に使う」は `aria-pressed` で状態を示し、選択だけでは画像生成・再変換を呼ばない。
+
+IPC契約では `ExportImageRequest`／`UploadImageRequest` に `id`、セットに `mainImageId`／`tabImageId` を追加する。`toExportCreateRequest` は変換済み画像を元の順で送り、選択はIDだけで指定するので、絞り込み後に位置がずれない。`toUploadStartRequest` は同じ解決処理の結果を `mainImagePath`／`thumbnailPath` に設定する。Electron の `archive:create`／`upload:start` は要求を透過する。
+
+FastAPI の `RepresentativeSelectionFields` は、`mainImageId`・`tabImageId` が両方とも省略された旧要求だけ `selection=None` とし、`images[0]` を使う。どちらかが存在する要求では、`null`・片方の欠落・セット外ID・画像IDの欠落／重複を 400 で拒否する。`backend/services/stamp_selection.py` の `resolve_representative_images` を ZIP（`StampExportService`）とアップロード（`/upload`）の両方で使い、選択した派生ファイルが存在し、PNG・規定サイズ（240×240／96×74）・1MB以下であることを確認する。ZIPは `01.png` 以降をスタンプの順で格納し、選択画像の `mainImagePath` を `main.png`、`thumbnailPath` を `tab.png` にする。アップロードは解決結果をアップローダーへ渡し、要求の照合用パスが一致しない場合と選択が不正な場合はSSE開始前に400を返す。アップロード機能が無効な構成でもZIP経路は単独で動作する。
+
+手動トリミング、文字除去、独立したメイン画像の生成は対象外とする。

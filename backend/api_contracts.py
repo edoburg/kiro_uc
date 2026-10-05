@@ -10,7 +10,9 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from backend.models import RepresentativeSelection
 
 
 def to_camel(name: str) -> str:
@@ -56,12 +58,33 @@ class ProcessRequestPayload(ApiModel):
 
 
 class ExportImagePayload(ApiModel):
+    # 選択IDの参照先。旧要求との互換のため省略可能（選択フィールドがある要求では必須）。
+    id: str | None = Field(default=None, min_length=1, max_length=200)
     stamp_path: str
     main_image_path: str
     thumbnail_path: str
 
 
-class ExportStampSetPayload(ApiModel):
+class RepresentativeSelectionFields(ApiModel):
+    """メイン／タブ画像の選択ID。
+
+    両フィールドとも省略した旧要求だけ images[0] を使う。どちらかを指定した要求は
+    新しい契約として扱い、null・欠落・セット外のIDをエラーにする。
+    """
+
+    main_image_id: str | None = Field(default=None, max_length=200)
+    tab_image_id: str | None = Field(default=None, max_length=200)
+
+    def representative_selection(self) -> RepresentativeSelection | None:
+        if not ({"main_image_id", "tab_image_id"} & self.model_fields_set):
+            return None
+        return RepresentativeSelection(
+            main_image_id=self.main_image_id,
+            tab_image_id=self.tab_image_id,
+        )
+
+
+class ExportStampSetPayload(RepresentativeSelectionFields):
     title: str
     description: str = ""
     images: list[ExportImagePayload]
@@ -73,12 +96,14 @@ class ExportRequestPayload(ApiModel):
 
 
 class UploadImagePayload(ApiModel):
+    id: str | None = Field(default=None, min_length=1, max_length=200)
     stamp_path: str
     main_image_path: str
     thumbnail_path: str
 
 
-class UploadStampSetPayload(ApiModel):
+class UploadStampSetPayload(RepresentativeSelectionFields):
+    # main_image_path / thumbnail_path は選択IDの解決結果の照合用（指定時に不一致なら400）。
     title: str
     description: str = ""
     creator_name: str

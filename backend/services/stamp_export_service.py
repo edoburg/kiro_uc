@@ -8,6 +8,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from backend.models import ExportResult, ExportStampSet
+from backend.services.stamp_selection import resolve_representative_images
 
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -45,11 +46,13 @@ class StampExportService:
                 (self._require_file(image.stamp_path), f"{index:0{width}d}.png")
             )
 
-        representative = stamp_set.images[0]
+        # スタンプ画像の順序は変えず、選択したメイン／タブ画像の派生ファイルを使う。
+        # アップロードと同じ解決処理で、ID・ファイル形式・サイズを検証する。
+        representative = resolve_representative_images(stamp_set.images, stamp_set.selection)
         source_paths.extend(
             [
                 (self._require_file(representative.main_image_path), "main.png"),
-                (self._require_file(representative.thumbnail_path), "tab.png"),
+                (self._require_file(representative.tab_image_path), "tab.png"),
             ]
         )
 

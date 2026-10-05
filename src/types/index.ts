@@ -143,6 +143,11 @@ export interface ValidationResult {
 
 /** LINE 規格変換済みの個別スタンプ画像（3 種類セット） */
 export interface StampImage {
+  /**
+   * セット内で一意かつ安定した画像ID。生成項目ID（GeneratedImage.itemId）を引き継ぎ、
+   * 差し替え・再変換・並び替えでも変えない。メイン／タブ画像の選択はこのIDで参照する。
+   */
+  id: string;
   /** 変換元画像のバックエンド側パス（再試行用） */
   sourcePath: string;
   /** スタンプ画像パス（W370×H320px 以内、透過 PNG） */
@@ -175,8 +180,27 @@ export interface StampSet {
   copyright: string;
   /** スタンプ画像一覧 */
   images: StampImage[];
+  /** メイン画像の元にする画像ID（その画像の mainImagePath を使う）。null は未選択。 */
+  mainImageId: string | null;
+  /** トークルームタブ画像の元にする画像ID（その画像の thumbnailPath を使う）。null は未選択。 */
+  tabImageId: string | null;
   /** LINE 規格バリデーション全通過フラグ（アップロードボタン活性制御に使用） */
   isValidForUpload: boolean;
+}
+
+/** メイン画像／トークルームタブ画像の役割。 */
+export type RepresentativeRole = "main" | "tab";
+
+/**
+ * 正規化前のStampSet。画像IDや選択フィールドを持たない旧データを受け付ける。
+ * 選択フィールドが未指定（undefined）の場合だけ先頭の正常画像へフォールバックし、
+ * null や不正なIDは指定値のまま保持する。
+ */
+export interface StampSetInput
+  extends Omit<StampSet, "images" | "mainImageId" | "tabImageId"> {
+  images: (Omit<StampImage, "id"> & { id?: string })[];
+  mainImageId?: string | null;
+  tabImageId?: string | null;
 }
 
 /** バックエンドの画像処理APIが返す、1画像分のLINE規格変換結果。 */

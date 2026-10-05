@@ -4,6 +4,7 @@ import type {
   GeneratedImage,
   GenerationRequest,
   GenerationStartRequest,
+  RepresentativeRole,
   StampPlanItem,
 } from "./types/index";
 import type {
@@ -559,29 +560,38 @@ export const AppInner: React.FC = () => {
     [dispatch],
   );
 
+  /**
+   * 画像IDで対象枠を特定して再変換する。位置ではなくIDで反映するため、
+   * 変換中に他の画像が削除されても別の枠や選択を上書きしない。
+   */
   const processStampImageAt = useCallback(
-    async (index: number, sourcePath: string, fallbackPreviewUrl = ""): Promise<void> => {
+    async (
+      imageId: string,
+      position: number,
+      sourcePath: string,
+      fallbackPreviewUrl = "",
+    ): Promise<void> => {
       const api = typeof window !== "undefined" ? window.api : undefined;
       if (!api?.image?.process) {
         setError("画像変換APIを利用できません。");
         return;
       }
 
-      dispatch({ type: "START_STAMP_IMAGE_PROCESSING", index, sourcePath });
+      dispatch({ type: "START_STAMP_IMAGE_PROCESSING", imageId, sourcePath });
       try {
         const processed = await api.image.process(sourcePath);
         dispatch({
           type: "UPDATE_STAMP_IMAGE",
-          index,
-          image: toStampImage(sourcePath, processed, fallbackPreviewUrl),
+          imageId,
+          image: toStampImage(imageId, sourcePath, processed, fallbackPreviewUrl),
         });
         setError(null);
       } catch (err) {
         const message = toJapaneseError(
           err,
-          `画像 ${index + 1} の変換に失敗しました。`,
+          `画像 ${position + 1} の変換に失敗しました。`,
         );
-        dispatch({ type: "STAMP_IMAGE_PROCESS_FAILED", index, message });
+        dispatch({ type: "STAMP_IMAGE_PROCESS_FAILED", imageId, message });
         setError(message);
       }
     },
@@ -589,27 +599,48 @@ export const AppInner: React.FC = () => {
   );
 
   const handleReplaceImage = useCallback(
-    (index: number, file: File): void => {
+    (imageId: string, file: File): void => {
+      const position = state.stampSet?.images.findIndex((image) => image.id === imageId) ?? -1;
+      if (position < 0) {
+        setError("差し替え対象の画像が見つかりません。");
+        return;
+      }
       const sourcePath = (file as File & { path?: string }).path;
       if (!sourcePath) {
         setError("差し替え画像のパスを取得できませんでした。");
         return;
       }
-      void processStampImageAt(index, sourcePath);
+      void processStampImageAt(imageId, position, sourcePath);
     },
-    [processStampImageAt, setError],
+    [processStampImageAt, setError, state.stampSet],
   );
 
   const handleRetryImage = useCallback(
-    (index: number): void => {
-      const image = state.stampSet?.images[index];
+    (imageId: string): void => {
+      const position = state.stampSet?.images.findIndex((image) => image.id === imageId) ?? -1;
+      const image = position >= 0 ? state.stampSet?.images[position] : undefined;
       if (!image?.sourcePath) {
         setError("再試行する元画像のパスがありません。画像を差し替えてください。");
         return;
       }
-      void processStampImageAt(index, image.sourcePath, image.stampPreviewUrl);
+      void processStampImageAt(imageId, position, image.sourcePath, image.stampPreviewUrl);
     },
     [processStampImageAt, setError, state.stampSet],
+  );
+
+  const handleSelectRepresentative = useCallback(
+    (role: RepresentativeRole, imageId: string): void => {
+      // 選択だけでは画像生成APIや再変換を呼ばない。変換済みの派生画像を参照する。
+      dispatch({ type: "SELECT_REPRESENTATIVE_IMAGE", role, imageId });
+    },
+    [dispatch],
+  );
+
+  const handleDeleteStampImage = useCallback(
+    (imageId: string): void => {
+      dispatch({ type: "DELETE_STAMP_IMAGE", imageId });
+    },
+    [dispatch],
   );
 
   const handleExport = useCallback(async (): Promise<void> => {
@@ -656,6 +687,14 @@ export const AppInner: React.FC = () => {
       setError(
         "LINE Creators Market の認証情報が設定されていません。設定画面から登録してください。",
       );
+      return;
+    }
+    // ZIPと同じ選択解決処理で要求を作る。解決できなければ開始しない。
+    let uploadRequest: ReturnType<typeof toUploadStartRequest>;
+    try {
+      uploadRequest = toUploadStartRequest(stampSet);
+    } catch (err) {
+      setError(toJapaneseError(err, "メイン画像またはタブ画像を選択してください。"));
       return;
     }
     dispatch({ type: "START_UPLOAD" });
@@ -712,7 +751,7 @@ export const AppInner: React.FC = () => {
       processPayload(payload);
     });
 
-    void api.upload.start(toUploadStartRequest(stampSet)).then(
+    void api.upload.start(uploadRequest).then(
       (handle) => {
         activeUploadStreamIdRef.current = handle.streamId;
         const pending = pendingUploadEventsRef.current;
@@ -1060,6 +1099,8 @@ export const AppInner: React.FC = () => {
               onCopyrightChange={handleCopyrightChange}
               onReplaceImage={handleReplaceImage}
               onRetryImage={handleRetryImage}
+              onSelectRepresentative={handleSelectRepresentative}
+              onDeleteImage={handleDeleteStampImage}
               onExport={handleExport}
               isExporting={isExporting}
               exportMessage={exportMessage}

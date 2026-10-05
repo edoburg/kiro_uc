@@ -452,8 +452,95 @@ h2 {
   padding-left: 20px;
 }
 
-.stamp-set-editor__retry-button {
+.stamp-set-editor__retry-button,
+.stamp-set-editor__delete-button {
   margin-left: 8px;
+}
+
+.stamp-set-editor__representatives {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.stamp-set-editor__representatives h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.stamp-set-editor__hint {
+  margin: 0 0 12px;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.stamp-set-editor__representative-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.stamp-set-editor__representative {
+  margin: 0;
+  min-width: 0;
+}
+
+.stamp-set-editor__representative figcaption {
+  margin-bottom: 6px;
+  font-size: 0.875rem;
+}
+
+/* 実際の出力サイズで確認できるよう、派生画像を等倍で表示する */
+.stamp-set-editor__representative[data-role="main"] .stamp-set-editor__representative-frame {
+  width: 256px;
+  max-width: 100%;
+}
+
+.stamp-set-editor__representative[data-role="tab"] .stamp-set-editor__representative-frame {
+  width: 112px;
+  aspect-ratio: 96 / 74;
+}
+
+.stamp-set-editor__item.is-representative {
+  border-color: var(--color-primary, #06c755);
+  box-shadow: 0 0 0 1px var(--color-primary, #06c755);
+}
+
+.stamp-set-editor__selection-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -4px 0 8px;
+}
+
+.stamp-set-editor__badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e6f8ee;
+  color: #0b6b35;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.stamp-set-editor__representative-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.stamp-set-editor__representative-button[aria-pressed="true"] {
+  border-color: #0b6b35;
+  background: #e6f8ee;
+  color: #0b6b35;
+  font-weight: 600;
+}
+
+.stamp-set-editor__placeholder {
+  color: var(--color-muted);
+  font-size: 0.75rem;
 }
 
 .stamp-set-editor__export-message {

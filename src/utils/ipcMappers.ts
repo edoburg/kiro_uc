@@ -1,33 +1,39 @@
-import type { StampSet, UploadResult } from "../types/index";
+import type { StampImage, StampSet, UploadResult } from "../types/index";
 import type {
   ExportCreateRequest,
+  ExportImageRequest,
   StreamErrorPayload,
   UploadResultPayload,
   UploadStartRequest,
 } from "../types/ipc";
+import { isExportableImage, requireRepresentativeImages } from "./stampSet";
 
-/** UIドメインのStampSetからZIPエクスポート要求を生成する。 */
+function toImageRequest(image: StampImage): ExportImageRequest {
+  return {
+    id: image.id,
+    stampPath: image.stampPath,
+    mainImagePath: image.mainImagePath,
+    thumbnailPath: image.thumbnailPath,
+  };
+}
+
+/**
+ * UIドメインのStampSetからZIPエクスポート要求を生成する。
+ * 変換済み画像だけを元の順序で送り、メイン／タブ画像は配列位置ではなく画像IDで指定する。
+ * 選択を解決できない場合は日本語の Error を投げる（先頭画像へ切り替えない）。
+ */
 export function toExportCreateRequest(
   stampSet: StampSet,
   defaultDirectory: string,
 ): ExportCreateRequest {
+  const representatives = requireRepresentativeImages(stampSet);
   return {
     stampSet: {
       title: stampSet.title,
       description: stampSet.description,
-      images: stampSet.images
-        .filter(
-          (image) =>
-            image.processingStatus === "done" &&
-            image.stampPath.length > 0 &&
-            image.mainImagePath.length > 0 &&
-            image.thumbnailPath.length > 0,
-        )
-        .map((image) => ({
-          stampPath: image.stampPath,
-          mainImagePath: image.mainImagePath,
-          thumbnailPath: image.thumbnailPath,
-        })),
+      images: stampSet.images.filter(isExportableImage).map(toImageRequest),
+      mainImageId: representatives.main.imageId,
+      tabImageId: representatives.tab.imageId,
     },
     defaultDirectory,
   };
@@ -36,22 +42,21 @@ export function toExportCreateRequest(
 /**
  * UIドメインのStampSetから、FastAPIへ送るアップロード要求を生成する。
  * validationResultなどAPIが受け付けないフィールドは境界で除外する。
+ * ZIPと同じ選択解決処理を使い、選択画像の派生パスを mainImagePath／thumbnailPath に設定する。
  */
 export function toUploadStartRequest(stampSet: StampSet): UploadStartRequest {
-  const representative = stampSet.images[0];
+  const representatives = requireRepresentativeImages(stampSet);
   return {
     stampSet: {
       title: stampSet.title,
       description: stampSet.description,
       creatorName: stampSet.creatorName,
       copyright: stampSet.copyright,
-      images: stampSet.images.map((image) => ({
-        stampPath: image.stampPath,
-        mainImagePath: image.mainImagePath,
-        thumbnailPath: image.thumbnailPath,
-      })),
-      mainImagePath: representative?.mainImagePath ?? null,
-      thumbnailPath: representative?.thumbnailPath ?? null,
+      images: stampSet.images.map(toImageRequest),
+      mainImageId: representatives.main.imageId,
+      tabImageId: representatives.tab.imageId,
+      mainImagePath: representatives.main.path,
+      thumbnailPath: representatives.tab.path,
     },
     emailCredentialKey: "line_email",
     passwordCredentialKey: "line_password",

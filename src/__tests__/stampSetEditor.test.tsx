@@ -27,6 +27,7 @@ afterEach(() => {
 /** テスト用の適合済み StampImage を 1 件生成する */
 function makeImage(index: number): StampImage {
   return {
+    id: `item-${index}`,
     sourcePath: `source-${index}.png`,
     stampPath: `stamp-${index}.png`,
     mainImagePath: `main-${index}.png`,
@@ -54,6 +55,8 @@ function makeStampSet(overrides: Partial<StampSet> = {}): StampSet {
     creatorName: "サンプル作者",
     copyright: "© Sample Creator",
     images: Array.from({ length: 8 }, (_, index) => makeImage(index)),
+    mainImageId: "item-0",
+    tabImageId: "item-0",
     isValidForUpload: true,
     ...overrides,
   };
@@ -71,6 +74,8 @@ function renderEditor(
     onCopyrightChange: vi.fn(),
     onReplaceImage: vi.fn(),
     onRetryImage: vi.fn(),
+    onSelectRepresentative: vi.fn(),
+    onDeleteImage: vi.fn(),
     onExport: vi.fn(),
     isExporting: false,
     exportMessage: null,
@@ -258,6 +263,8 @@ describe("StampSetEditor - コールバック発火", () => {
       onCopyrightChange: vi.fn(),
       onReplaceImage: vi.fn(),
       onRetryImage: vi.fn(),
+      onSelectRepresentative: vi.fn(),
+      onDeleteImage: vi.fn(),
       onExport: vi.fn(),
       isExporting: true,
       exportMessage: null,
@@ -279,6 +286,8 @@ describe("StampSetEditor - コールバック発火", () => {
       onCopyrightChange: vi.fn(),
       onReplaceImage: vi.fn(),
       onRetryImage: vi.fn(),
+      onSelectRepresentative: vi.fn(),
+      onDeleteImage: vi.fn(),
       onExport: vi.fn(),
       isExporting: false,
       exportMessage: "サンプル.zip を保存しました。",
@@ -324,7 +333,7 @@ describe("StampSetEditor - 画像差し替え（要件 4.4, 4.5, 4.6）", () => 
     fireEvent.change(input, { target: { files: [pngFile] } });
 
     expect(handlers.onReplaceImage).toHaveBeenCalledTimes(1);
-    expect(handlers.onReplaceImage).toHaveBeenCalledWith(0, pngFile);
+    expect(handlers.onReplaceImage).toHaveBeenCalledWith("item-0", pngFile);
   });
 
   it("変換失敗画像では再試行ボタンを表示してコールバックを呼ぶ", () => {
@@ -343,7 +352,7 @@ describe("StampSetEditor - 画像差し替え（要件 4.4, 4.5, 4.6）", () => 
     const handlers = renderEditor(set);
 
     fireEvent.click(screen.getByRole("button", { name: "変換を再試行" }));
-    expect(handlers.onRetryImage).toHaveBeenCalledWith(0);
+    expect(handlers.onRetryImage).toHaveBeenCalledWith("item-0");
     expect(screen.getByText(/変換失敗/)).toBeInTheDocument();
   });
 
@@ -357,5 +366,104 @@ describe("StampSetEditor - 画像差し替え（要件 4.4, 4.5, 4.6）", () => 
       screen.getByRole("button", { name: "エクスポート（ZIP保存）" }),
     ).toBeEnabled();
     expect(screen.getByText(/スタンプ画像の枚数/)).toBeInTheDocument();
+  });
+});
+
+describe("StampSetEditor - メイン画像・タブ画像の選択", () => {
+  it("選択中の派生画像（元画像ではない）を上部に表示し、各画像に選択状態を示す", () => {
+    renderEditor(makeStampSet({ mainImageId: "item-2", tabImageId: "item-4" }));
+
+    const summary = screen.getByRole("region", { name: "メイン画像とトークルームタブ画像" });
+    expect(
+      within(summary).getByAltText("選択中のメイン画像（スタンプ 3）"),
+    ).toHaveAttribute("src", "data:image/png;base64,main-2");
+    expect(
+      within(summary).getByAltText("選択中のトークルームタブ画像（スタンプ 5）"),
+    ).toHaveAttribute("src", "data:image/png;base64,thumb-4");
+    expect(summary).toHaveTextContent("スタンプ 3 から作成");
+    expect(summary).toHaveTextContent("中央を正方形に切り抜く");
+
+    expect(
+      screen.getByRole("button", { name: "スタンプ 3 をメイン画像に使う" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "スタンプ 5 をタブ画像に使う" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "スタンプ 1 をメイン画像に使う" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    const third = screen.getByRole("heading", { name: "スタンプ 3" }).closest("li") as HTMLElement;
+    expect(within(third).getByText("メイン画像に選択中", { selector: "span" })).toBeInTheDocument();
+  });
+
+  it("選択ボタンは画像IDで通知し、メインとタブを独立して選べる", () => {
+    const handlers = renderEditor(makeStampSet());
+
+    fireEvent.click(screen.getByRole("button", { name: "スタンプ 3 をメイン画像に使う" }));
+    fireEvent.click(screen.getByRole("button", { name: "スタンプ 5 をタブ画像に使う" }));
+
+    expect(handlers.onSelectRepresentative).toHaveBeenNthCalledWith(1, "main", "item-2");
+    expect(handlers.onSelectRepresentative).toHaveBeenNthCalledWith(2, "tab", "item-4");
+    expect(handlers.onReplaceImage).not.toHaveBeenCalled();
+    expect(handlers.onRetryImage).not.toHaveBeenCalled();
+  });
+
+  it("変換失敗・変換中の画像は選択できない", () => {
+    const set = makeStampSet();
+    set.images[1] = {
+      ...makeImage(1),
+      processingStatus: "error",
+      mainImagePath: "",
+      thumbnailPath: "",
+      mainImagePreviewUrl: "",
+      thumbnailPreviewUrl: "",
+    };
+    set.images[2] = { ...makeImage(2), processingStatus: "processing" };
+    renderEditor(set);
+
+    for (const position of [2, 3]) {
+      expect(
+        screen.getByRole("button", { name: `スタンプ ${position} をメイン画像に使う` }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: `スタンプ ${position} をタブ画像に使う` }),
+      ).toBeDisabled();
+    }
+    expect(screen.getAllByText("未作成")).toHaveLength(2);
+  });
+
+  it("未選択または不正なIDでは理由を表示し、ZIP保存とアップロードを無効化する", () => {
+    renderEditor(makeStampSet({ mainImageId: null, tabImageId: "missing", isValidForUpload: false }));
+
+    const summary = screen.getByRole("region", { name: "メイン画像とトークルームタブ画像" });
+    expect(summary).toHaveTextContent("メイン画像が選択されていません");
+    expect(summary).toHaveTextContent("選択中のタブ画像がスタンプセット内に見つかりません");
+    expect(screen.getByRole("button", { name: "エクスポート（ZIP保存）" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "LINE Creators Market へアップロード" }),
+    ).toBeDisabled();
+  });
+
+  it("選択中の画像を削除するときは選択解除を知らせて確認する", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const handlers = renderEditor(makeStampSet({ mainImageId: "item-2", tabImageId: "item-2" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "スタンプ画像 3 を削除" }));
+    expect(confirm.mock.calls[0][0]).toContain("メイン画像とタブ画像に選択されています");
+    expect(confirm.mock.calls[0][0]).toContain("未選択");
+    expect(handlers.onDeleteImage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "スタンプ画像 3 を削除" }));
+    expect(handlers.onDeleteImage).toHaveBeenCalledWith("item-2");
+  });
+
+  it("選択していない画像の削除確認には選択解除の説明を含めない", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const handlers = renderEditor(makeStampSet());
+
+    fireEvent.click(screen.getByRole("button", { name: "スタンプ画像 4 を削除" }));
+
+    expect(confirm.mock.calls[0][0]).toBe("スタンプ 4 をセットから削除しますか？");
+    expect(handlers.onDeleteImage).toHaveBeenCalledWith("item-3");
   });
 });
